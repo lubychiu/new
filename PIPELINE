@@ -1,14 +1,135 @@
 ############################################################
+# REORDER THE 12 RNA-seq SAMPLE COLUMNS
+#
+# Desired order:
+#
+# 1-3   WT +Pi
+# 4-6   WT -Pi
+# 7-9   KCS1 +Pi
+# 10-12 KCS1 -Pi
+#
+############################################################
+
+print("======================================================")
+print("REORDERING RNA-seq SAMPLES")
+print("======================================================")
+
+# The featureCounts file has:
+# columns 1-6 = annotation columns
+# columns 7-18 = 12 RNA-seq samples
+
+sample_columns_original <- 7:18
+
+# Get the actual sample column names
+original_sample_names <- colnames(counts_raw)[sample_columns_original]
+
+print("Original sample order:")
+print(original_sample_names)
+
+
+############################################################
+# EXTRACT N44VRL SAMPLE NUMBERS
+############################################################
+
+sample_numbers <- as.numeric(
+  sub(
+    ".*N44VRL_([0-9]+)_.*",
+    "\\1",
+    original_sample_names
+  )
+)
+
+print("Sample numbers detected:")
+print(sample_numbers)
+
+
+############################################################
+# CHECK THAT ALL 12 SAMPLE NUMBERS WERE DETECTED
+############################################################
+
+if (
+  length(sample_numbers) != 12 ||
+  any(is.na(sample_numbers)) ||
+  !setequal(sample_numbers, 1:12)
+) {
+  
+  print("Detected sample names:")
+  print(original_sample_names)
+  
+  print("Detected sample numbers:")
+  print(sample_numbers)
+  
+  stop(
+    "ERROR: Could not correctly identify N44VRL sample numbers 1-12."
+  )
+}
+
+
+############################################################
+# REORDER BY N44VRL SAMPLE NUMBER
+############################################################
+
+sample_columns <- sample_columns_original[
+  order(sample_numbers)
+]
+
+original_sample_names <- colnames(
+  counts_raw
+)[sample_columns]
+
+
+############################################################
+# VERIFY FINAL ORDER
+############################################################
+
+print("======================================================")
+print("CORRECTED SAMPLE ORDER")
+print("======================================================")
+
+for (i in seq_along(original_sample_names)) {
+  
+  print(
+    paste(
+      i,
+      ":",
+      original_sample_names[i]
+    )
+  )
+}
+
+
+############################################################
+# FINAL SAFETY CHECK
+############################################################
+
+if (
+  length(sample_columns) != 12 ||
+  any(is.na(sample_columns)) ||
+  length(unique(sample_columns)) != 12
+) {
+  
+  stop(
+    "ERROR: Sample reordering failed. Expected 12 unique samples."
+  )
+}
+
+
+print("======================================================")
+print("SUCCESS: Samples are now in the correct order.")
+print("======================================================")
+'''
+
+bash'''
+############################################################
 # CANDIDA ALBICANS RNA-seq ANALYSIS
 #
 # EXPERIMENT:
 #
-# WT   +Pi
-# WT   -Pi
-# kcs1 +Pi
-# kcs1 -Pi
+# WT   +Pi     3 biological replicates
+# WT   -Pi     3 biological replicates
+# kcs1 +Pi     3 biological replicates
+# kcs1 -Pi     3 biological replicates
 #
-# 3 biological replicates per condition
 # 12 samples total
 #
 # MAIN BIOLOGICAL QUESTION:
@@ -19,36 +140,26 @@
 # IMPORTANT:
 #
 # DESeq2 uses ALL 12 biological replicates independently.
-#
 # Replicates are averaged ONLY for condition-level
 # visualization using VST expression values.
 #
-# Gene IDs are mapped to Candida Genome Database gene names.
+# SAMPLE ORDER IS DETERMINED FROM N44VRL SAMPLE NUMBERS:
+#
+# 1-3    WT +Pi
+# 4-6    WT -Pi
+# 7-9    kcs1 +Pi
+# 10-12  kcs1 -Pi
+#
 ############################################################
 
 
 ############################################################
-# 0. INSTALL / LOAD REQUIRED PACKAGES
+# 0. LOAD REQUIRED PACKAGES
 ############################################################
 
 if (!requireNamespace("BiocManager", quietly = TRUE)) {
   install.packages("BiocManager")
 }
-
-# Uncomment if packages are not installed:
-#
-# BiocManager::install("DESeq2")
-# BiocManager::install("EnhancedVolcano")
-# BiocManager::install("pheatmap")
-#
-# install.packages(c(
-#   "ggplot2",
-#   "ggrepel",
-#   "dplyr",
-#   "tidyr",
-#   "tibble",
-#   "matrixStats"
-# ))
 
 library(DESeq2)
 library(EnhancedVolcano)
@@ -131,21 +242,13 @@ dir.create(
 ############################################################
 # 2. LOAD CANDIDA GENOME DATABASE ANNOTATION
 ############################################################
-#
-# cgd_features.tab should contain:
-#
-# Column 1 = Systematic ID
-# Column 2 = Gene name
-# Column 4 = Feature type
-#
-############################################################
 
 print("======================================================")
 print("LOADING CGD GENE ANNOTATION")
 print("======================================================")
 
 if (!file.exists("cgd_features.tab")) {
-  
+
   stop(
     paste0(
       "\nERROR: cgd_features.tab was not found.\n",
@@ -153,7 +256,7 @@ if (!file.exists("cgd_features.tab")) {
       "as this R script.\n"
     )
   )
-  
+
 }
 
 cgd_raw <- read.table(
@@ -172,21 +275,21 @@ cgd_raw <- read.table(
 ############################################################
 
 mapping_table <- data.frame(
-  
+
   systematic_id = trimws(
     as.character(cgd_raw[, 1])
   ),
-  
+
   gene_symbol = trimws(
     as.character(cgd_raw[, 2])
   ),
-  
+
   feature_type = trimws(
     as.character(cgd_raw[, 4])
   ),
-  
+
   stringsAsFactors = FALSE
-  
+
 )
 
 
@@ -202,11 +305,11 @@ mapping_table$gene_symbol[
 
 
 ############################################################
-# FUNCTION TO NORMALIZE SYSTEMATIC IDs
+# FUNCTION TO NORMALIZE SYSTEMATIC IDS
 ############################################################
 
 normalize_id <- function(x) {
-  
+
   toupper(
     gsub(
       "[_\\-]",
@@ -214,12 +317,12 @@ normalize_id <- function(x) {
       trimws(x)
     )
   )
-  
+
 }
 
 
 ############################################################
-# CREATE NORMALIZED CGD IDs
+# CREATE NORMALIZED CGD IDS
 ############################################################
 
 mapping_table$id_norm <- normalize_id(
@@ -229,8 +332,6 @@ mapping_table$id_norm <- normalize_id(
 
 ############################################################
 # REMOVE DUPLICATE MAPPING ENTRIES
-#
-# Entries with actual gene names are preferred.
 ############################################################
 
 mapping_table <- mapping_table[
@@ -278,14 +379,14 @@ print("LOADING FEATURECOUNTS MATRIX")
 print("======================================================")
 
 if (!file.exists("candida_counts_matrix.txt")) {
-  
+
   stop(
     paste0(
       "\nERROR: candida_counts_matrix.txt was not found.\n",
       "Place it in the same working directory as this script.\n"
     )
   )
-  
+
 }
 
 counts_raw <- read.delim(
@@ -314,7 +415,7 @@ print(colnames(counts_raw))
 
 
 ############################################################
-# EXPECTED STRUCTURE:
+# EXPECTED STRUCTURE
 #
 # 1  Geneid
 # 2  Chr
@@ -328,7 +429,7 @@ print(colnames(counts_raw))
 ############################################################
 
 if (ncol(counts_raw) != 18) {
-  
+
   stop(
     paste0(
       "\nERROR: Expected exactly 18 columns.\n\n",
@@ -340,7 +441,7 @@ if (ncol(counts_raw) != 18) {
       " columns.\n"
     )
   )
-  
+
 }
 
 
@@ -356,62 +457,307 @@ empty_names <- which(
 )
 
 if (length(empty_names) > 0) {
-  
+
   print(
     paste(
       "WARNING: Empty column names detected at:",
       paste(empty_names, collapse = ", ")
     )
   )
-  
+
   for (i in empty_names) {
+
     original_names[i] <- paste0(
       "Sample_",
       i
     )
+
   }
-  
+
   colnames(counts_raw) <- original_names
-  
+
 }
 
 
 ############################################################
-# EXTRACT THE 12 SAMPLE COLUMNS
+# 4. IDENTIFY AND REORDER SAMPLE COLUMNS
+############################################################
+#
+# IMPORTANT:
+#
+# We DO NOT modify the original .txt file.
+#
+# We identify each sample using its N44VRL number,
+# then reorder the columns inside R.
+#
 ############################################################
 
-sample_columns <- 7:18
+print("======================================================")
+print("IDENTIFYING RNA-seq SAMPLE COLUMNS")
+print("======================================================")
+
+sample_columns_original <- 7:18
+
+original_sample_names <- colnames(
+  counts_raw
+)[sample_columns_original]
+
+print("Original sample order in featureCounts file:")
+print(original_sample_names)
+
+
+############################################################
+# EXTRACT N44VRL SAMPLE NUMBERS
+############################################################
+
+sample_numbers <- as.numeric(
+  sub(
+    ".*N44VRL_([0-9]+)_.*",
+    "\\1",
+    original_sample_names
+  )
+)
+
+print("Detected N44VRL sample numbers:")
+print(sample_numbers)
+
+
+############################################################
+# VERIFY SAMPLE NUMBERS
+############################################################
+
+if (
+  length(sample_numbers) != 12 ||
+  any(is.na(sample_numbers)) ||
+  !setequal(sample_numbers, 1:12)
+) {
+
+  print("Detected sample names:")
+  print(original_sample_names)
+
+  print("Detected sample numbers:")
+  print(sample_numbers)
+
+  stop(
+    paste0(
+      "\nERROR: Could not correctly identify ",
+      "N44VRL samples 1-12.\n\n",
+      "The script expected sample numbers 1 through 12."
+    )
+  )
+
+}
+
+
+############################################################
+# REORDER BY SAMPLE NUMBER
+############################################################
+
+sample_columns <- sample_columns_original[
+  order(sample_numbers)
+]
 
 original_sample_names <- colnames(
   counts_raw
 )[sample_columns]
 
-print("======================================================")
-print("ORIGINAL SAMPLE NAMES")
-print("======================================================")
-
-print(original_sample_names)
-
 
 ############################################################
-# CHECK FOR DUPLICATE SAMPLE NAMES
+# PRINT CORRECTED ORDER
 ############################################################
 
-if (anyDuplicated(original_sample_names) > 0) {
-  
+print("======================================================")
+print("CORRECTED SAMPLE ORDER")
+print("======================================================")
+
+for (i in seq_along(original_sample_names)) {
+
   print(
-    "WARNING: Duplicate sample names detected."
+    paste(
+      i,
+      ":",
+      original_sample_names[i]
+    )
   )
-  
-  original_sample_names <- make.unique(
-    original_sample_names
-  )
-  
-  colnames(
-    counts_raw
-  )[sample_columns] <- original_sample_names
-  
+
 }
+
+
+############################################################
+# VERIFY BIOLOGICAL GROUPS FROM SAMPLE NAMES
+############################################################
+
+print("======================================================")
+print("VERIFYING BIOLOGICAL GROUPS")
+print("======================================================")
+
+
+expected_groups <- c(
+  "WT +Pi",
+  "WT +Pi",
+  "WT +Pi",
+  "WT -Pi",
+  "WT -Pi",
+  "WT -Pi",
+  "kcs1 +Pi",
+  "kcs1 +Pi",
+  "kcs1 +Pi",
+  "kcs1 -Pi",
+  "kcs1 -Pi",
+  "kcs1 -Pi"
+)
+
+
+actual_groups <- c(
+
+  ifelse(
+    grepl("WT[123].*\\+Pi", original_sample_names),
+    "WT +Pi",
+    NA
+  ),
+
+  ifelse(
+    grepl("WT[123].*\\-Pi", original_sample_names),
+    "WT -Pi",
+    NA
+  )
+
+)
+
+
+############################################################
+# EXTRACT SAMPLE INFORMATION DIRECTLY FROM NAMES
+############################################################
+
+detected_genotype <- ifelse(
+  grepl("_WT[123]_", original_sample_names),
+  "WT",
+  ifelse(
+    grepl("_KCS1-", original_sample_names),
+    "kcs1",
+    NA
+  )
+)
+
+detected_pi <- ifelse(
+  grepl("_\\+Pi_", original_sample_names),
+  "plus",
+  ifelse(
+    grepl("_-Pi_", original_sample_names),
+    "minus",
+    NA
+  )
+)
+
+
+############################################################
+# CHECK GENOTYPE / PI DETECTION
+############################################################
+
+if (
+  any(is.na(detected_genotype)) ||
+  any(is.na(detected_pi))
+) {
+
+  print(original_sample_names)
+  print(detected_genotype)
+  print(detected_pi)
+
+  stop(
+    "\nERROR: Could not determine genotype or Pi condition from sample names."
+  )
+
+}
+
+
+############################################################
+# PRINT SAMPLE GROUP ASSIGNMENTS
+############################################################
+
+for (i in seq_along(original_sample_names)) {
+
+  print(
+    paste(
+      i,
+      ":",
+      original_sample_names[i],
+      "->",
+      detected_genotype[i],
+      detected_pi[i]
+    )
+  )
+
+}
+
+
+############################################################
+# FINAL ORDER CHECK
+############################################################
+
+expected_genotype <- c(
+  "WT",
+  "WT",
+  "WT",
+  "WT",
+  "WT",
+  "WT",
+  "kcs1",
+  "kcs1",
+  "kcs1",
+  "kcs1",
+  "kcs1",
+  "kcs1"
+)
+
+expected_pi <- c(
+  "plus",
+  "plus",
+  "plus",
+  "minus",
+  "minus",
+  "minus",
+  "plus",
+  "plus",
+  "plus",
+  "minus",
+  "minus",
+  "minus"
+)
+
+
+if (
+  !identical(
+    detected_genotype,
+    expected_genotype
+  ) ||
+  !identical(
+    detected_pi,
+    expected_pi
+  )
+) {
+
+  print("Expected genotype:")
+  print(expected_genotype)
+
+  print("Detected genotype:")
+  print(detected_genotype)
+
+  print("Expected Pi:")
+  print(expected_pi)
+
+  print("Detected Pi:")
+  print(detected_pi)
+
+  stop(
+    "\nERROR: Sample order does not match the expected experimental design."
+  )
+
+}
+
+
+print("======================================================")
+print("SUCCESS: SAMPLE ORDER IS CORRECT")
+print("======================================================")
 
 
 ############################################################
@@ -432,13 +778,13 @@ colnames(counts_clean)[1] <- "Geneid"
 ############################################################
 
 for (i in 2:ncol(counts_clean)) {
-  
+
   counts_clean[[i]] <- as.numeric(
     as.character(
       counts_clean[[i]]
     )
   )
-  
+
 }
 
 
@@ -447,13 +793,13 @@ for (i in 2:ncol(counts_clean)) {
 ############################################################
 
 if (any(is.na(counts_clean[, -1]))) {
-  
+
   na_count <- sum(
     is.na(
       counts_clean[, -1]
     )
   )
-  
+
   stop(
     paste0(
       "\nERROR: ",
@@ -462,7 +808,7 @@ if (any(is.na(counts_clean[, -1]))) {
       "Check the featureCounts file.\n"
     )
   )
-  
+
 }
 
 
@@ -480,7 +826,7 @@ counts_fixed <- aggregate(
 
 
 ############################################################
-# 4. REMOVE tRNA / rRNA FEATURES
+# 5. REMOVE tRNA / rRNA FEATURES
 ############################################################
 
 print("======================================================")
@@ -489,7 +835,7 @@ print("======================================================")
 
 
 ############################################################
-# NORMALIZE COUNT MATRIX IDs
+# NORMALIZE COUNT MATRIX IDS
 ############################################################
 
 stripped_keys <- gsub(
@@ -520,19 +866,19 @@ matched_features <- mapping_table$feature_type[
 ############################################################
 
 is_trna_rrna <- (
-  
+
   grepl(
     "tRNA|rRNA",
     counts_fixed$Geneid,
     ignore.case = TRUE
   ) |
-    
+
     grepl(
       "tRNA|rRNA",
       matched_features,
       ignore.case = TRUE
     )
-  
+
 )
 
 
@@ -588,7 +934,7 @@ counts <- counts_fixed[
 
 
 ############################################################
-# 5. CREATE GENE ANNOTATION FOR COUNT MATRIX
+# 6. CREATE GENE ANNOTATION
 ############################################################
 
 print("======================================================")
@@ -597,7 +943,7 @@ print("======================================================")
 
 
 ############################################################
-# ORIGINAL SYSTEMATIC IDs
+# ORIGINAL SYSTEMATIC IDS
 ############################################################
 
 original_gene_ids <- rownames(counts)
@@ -615,7 +961,7 @@ stripped_ids <- gsub(
 
 
 ############################################################
-# NORMALIZE IDS FOR MATCHING
+# NORMALIZE IDS
 ############################################################
 
 normalized_ids <- normalize_id(
@@ -636,18 +982,18 @@ matched_gene_names <- mapping_table$gene_symbol[
 
 
 ############################################################
-# FALL BACK TO SYSTEMATIC ID WHEN NO NAME EXISTS
+# FALL BACK TO SYSTEMATIC ID
 ############################################################
 
 display_gene_names <- ifelse(
-  
+
   !is.na(matched_gene_names) &
     matched_gene_names != "",
-  
+
   matched_gene_names,
-  
+
   stripped_ids
-  
+
 )
 
 
@@ -656,13 +1002,13 @@ display_gene_names <- ifelse(
 ############################################################
 
 gene_annotation <- data.frame(
-  
+
   Systematic_ID = original_gene_ids,
-  
+
   Gene_Name = display_gene_names,
-  
+
   stringsAsFactors = FALSE
-  
+
 )
 
 
@@ -696,26 +1042,26 @@ print(
 
 
 ############################################################
-# SAVE GENE ANNOTATION TABLE
+# SAVE GENE ANNOTATION
 ############################################################
 
 write.csv(
-  
+
   gene_annotation,
-  
+
   file.path(
     output_dir,
     "02_DE_results",
     "Gene_ID_to_Gene_Name_Annotation.csv"
   ),
-  
+
   row.names = FALSE
-  
+
 )
 
 
 ############################################################
-# 6. CREATE SHORT SAMPLE NAMES
+# 7. CREATE SAMPLE METADATA
 ############################################################
 
 print("======================================================")
@@ -724,99 +1070,48 @@ print("======================================================")
 
 
 ############################################################
-# IMPORTANT SAMPLE ORDER ASSUMPTION
-#
-# 1-3   WT +Pi
-# 4-6   WT -Pi
-# 7-9   kcs1 +Pi
-# 10-12 kcs1 -Pi
-#
-# IF YOUR FEATURECOUNTS FILE HAS A DIFFERENT ORDER,
-# CHANGE THESE VECTORS.
+# USE DETECTED SAMPLE INFORMATION
 ############################################################
 
-genotype_vector <- c(
-  "WT",
-  "WT",
-  "WT",
-  
-  "WT",
-  "WT",
-  "WT",
-  
-  "kcs1",
-  "kcs1",
-  "kcs1",
-  
-  "kcs1",
-  "kcs1",
-  "kcs1"
-)
+genotype_vector <- detected_genotype
+
+pi_vector <- detected_pi
 
 
-pi_vector <- c(
-  "plus",
-  "plus",
-  "plus",
-  
-  "minus",
-  "minus",
-  "minus",
-  
-  "plus",
-  "plus",
-  "plus",
-  
-  "minus",
-  "minus",
-  "minus"
-)
-
+############################################################
+# REPLICATE NUMBERS
+############################################################
 
 replicate_vector <- c(
-  1,
-  2,
-  3,
-  
-  1,
-  2,
-  3,
-  
-  1,
-  2,
-  3,
-  
-  1,
-  2,
-  3
+  1, 2, 3,
+  1, 2, 3,
+  1, 2, 3,
+  1, 2, 3
 )
 
 
 ############################################################
 # SHORT INTERNAL SAMPLE NAMES
-#
-# These MUST remain unique because DESeq2 needs each
-# biological replicate separately.
 ############################################################
 
 short_sample_names <- c(
-  
+
   "WT_+Pi_1",
   "WT_+Pi_2",
   "WT_+Pi_3",
-  
+
   "WT_-Pi_1",
   "WT_-Pi_2",
   "WT_-Pi_3",
-  
+
   "kcs1_+Pi_1",
   "kcs1_+Pi_2",
   "kcs1_+Pi_3",
-  
+
   "kcs1_-Pi_1",
   "kcs1_-Pi_2",
   "kcs1_-Pi_3"
-  
+
 )
 
 
@@ -825,23 +1120,23 @@ short_sample_names <- c(
 ############################################################
 
 display_sample_names <- c(
-  
+
   "WT +Pi 1",
   "WT +Pi 2",
   "WT +Pi 3",
-  
+
   "WT -Pi 1",
   "WT -Pi 2",
   "WT -Pi 3",
-  
+
   "kcs1 +Pi 1",
   "kcs1 +Pi 2",
   "kcs1 +Pi 3",
-  
+
   "kcs1 -Pi 1",
   "kcs1 -Pi 2",
   "kcs1 -Pi 3"
-  
+
 )
 
 
@@ -856,11 +1151,11 @@ if (
   length(short_sample_names) != 12 ||
   length(display_sample_names) != 12
 ) {
-  
+
   stop(
     "ERROR: Sample metadata vectors must all contain exactly 12 entries."
   )
-  
+
 }
 
 
@@ -876,13 +1171,13 @@ colnames(counts) <- short_sample_names
 ############################################################
 
 metadata <- data.frame(
-  
+
   Original_Sample_ID = original_sample_names,
-  
+
   Sample_Name = short_sample_names,
-  
+
   Display_Name = display_sample_names,
-  
+
   Genotype = factor(
     genotype_vector,
     levels = c(
@@ -890,7 +1185,7 @@ metadata <- data.frame(
       "kcs1"
     )
   ),
-  
+
   Pi = factor(
     pi_vector,
     levels = c(
@@ -898,11 +1193,11 @@ metadata <- data.frame(
       "minus"
     )
   ),
-  
+
   Replicate = replicate_vector,
-  
+
   stringsAsFactors = FALSE
-  
+
 )
 
 
@@ -918,20 +1213,20 @@ rownames(metadata) <- short_sample_names
 ############################################################
 
 metadata$Condition <- factor(
-  
+
   paste(
     metadata$Genotype,
     metadata$Pi,
     sep = "_"
   ),
-  
+
   levels = c(
     "WT_plus",
     "WT_minus",
     "kcs1_plus",
     "kcs1_minus"
   )
-  
+
 )
 
 
@@ -950,30 +1245,24 @@ print(metadata)
 # VERIFY THREE REPLICATES PER CONDITION
 ############################################################
 
-print("------------------------------------------------------")
-print("REPLICATE COUNTS")
-print("------------------------------------------------------")
-
-print(
-  table(
-    metadata$Condition
-  )
-)
-
-
 replicate_table <- table(
   metadata$Condition
 )
 
+print("------------------------------------------------------")
+print("REPLICATE COUNTS")
+print("------------------------------------------------------")
+
+print(replicate_table)
+
 
 if (!all(replicate_table == 3)) {
-  
+
   stop(
     "ERROR: Every condition must contain exactly 3 biological replicates."
   )
-  
-}
 
+}
 
 print(
   "SUCCESS: Four conditions × three biological replicates."
@@ -985,38 +1274,16 @@ print(
 ############################################################
 
 write.csv(
-  
+
   metadata,
-  
+
   file.path(
     output_dir,
     "sample_metadata.csv"
   ),
-  
+
   row.names = TRUE
-  
-)
 
-
-############################################################
-# 7. BUILD DESEQ2 OBJECT
-############################################################
-
-print("======================================================")
-print("BUILDING DESEQ2 OBJECT")
-print("======================================================")
-
-
-dds <- DESeqDataSetFromMatrix(
-  
-  countData = round(
-    as.matrix(counts)
-  ),
-  
-  colData = metadata,
-  
-  design = ~ Genotype * Pi
-  
 )
 
 
@@ -1029,244 +1296,86 @@ print("FILTERING LOW-COUNT GENES")
 print("======================================================")
 
 
+keep_genes <- rowSums(
+  counts
+) >= 10
+
 print(
   paste(
     "Genes before filtering:",
-    nrow(dds)
+    nrow(counts)
+  )
+)
+
+print(
+  paste(
+    "Genes passing count filter:",
+    sum(keep_genes)
+  )
+)
+
+print(
+  paste(
+    "Genes removed:",
+    sum(!keep_genes)
   )
 )
 
 
-keep <- rowSums(
-  counts(dds)
-) >= 10
-
-
-dds <- dds[
-  keep,
+counts_filtered <- counts[
+  keep_genes,
   ,
   drop = FALSE
 ]
 
 
-print(
-  paste(
-    "Genes after filtering:",
-    nrow(dds)
-  )
+############################################################
+# 9. CREATE DESEQ2 OBJECT
+############################################################
+
+print("======================================================")
+print("CREATING DESEQ2 OBJECT")
+print("======================================================")
+
+
+dds <- DESeqDataSetFromMatrix(
+
+  countData = round(
+    as.matrix(counts_filtered)
+  ),
+
+  colData = metadata,
+
+  design = ~ Genotype * Pi
+
 )
 
 
 ############################################################
-# 9. RUN DESEQ2
+# RUN DESEQ2
 ############################################################
-
-print("======================================================")
-print("RUNNING DESEQ2")
-print("======================================================")
-
 
 dds <- DESeq(
   dds
 )
 
 
-print("DESeq2 completed.")
-
-
 ############################################################
-# PRINT MODEL COEFFICIENTS
+# SAVE DESEQ2 OBJECT
 ############################################################
 
-model_names <- resultsNames(
-  dds
-)
-
-print("------------------------------------------------------")
-print("DESeq2 MODEL COEFFICIENTS")
-print("------------------------------------------------------")
-
-print(model_names)
-
-
-############################################################
-# 10. IDENTIFY REQUIRED COEFFICIENTS
-############################################################
-#
-# The exact interaction coefficient name can vary slightly
-# depending on DESeq2's naming convention.
-#
-# We identify it from resultsNames(dds).
-############################################################
-
-genotype_candidates <- model_names[
-  grepl(
-    "^Genotype.*kcs1.*WT",
-    model_names,
-    ignore.case = TRUE
-  )
-]
-
-
-pi_candidates <- model_names[
-  grepl(
-    "^Pi.*minus.*plus",
-    model_names,
-    ignore.case = TRUE
-  )
-]
-
-
-interaction_candidates <- model_names[
-  grepl(
-    "Genotype.*kcs1.*Pi.*minus",
-    model_names,
-    ignore.case = TRUE
-  )
-]
-
-
-print("------------------------------------------------------")
-print("IDENTIFIED COEFFICIENTS")
-print("------------------------------------------------------")
-
-print(
-  paste(
-    "Genotype:",
-    paste(
-      genotype_candidates,
-      collapse = ", "
-    )
-  )
-)
-
-print(
-  paste(
-    "Pi:",
-    paste(
-      pi_candidates,
-      collapse = ", "
-    )
-  )
-)
-
-print(
-  paste(
-    "Interaction:",
-    paste(
-      interaction_candidates,
-      collapse = ", "
-    )
-  )
-)
-
-
-############################################################
-# MAKE SURE EXACTLY ONE COEFFICIENT WAS FOUND
-############################################################
-
-if (
-  length(genotype_candidates) != 1 ||
-  length(pi_candidates) != 1 ||
-  length(interaction_candidates) != 1
-) {
-  
-  stop(
-    paste0(
-      "\nERROR: Could not uniquely identify the DESeq2 ",
-      "coefficients needed for the contrasts.\n\n",
-      "Run:\n\n",
-      "resultsNames(dds)\n\n",
-      "and inspect the coefficient names above."
-    )
-  )
-  
-}
-
-
-genotype_coef <- genotype_candidates[1]
-
-pi_coef <- pi_candidates[1]
-
-interaction_coef <- interaction_candidates[1]
-
-
-############################################################
-# 11. SAVE NORMALIZED COUNTS
-############################################################
-
-print("======================================================")
-print("SAVING NORMALIZED COUNTS")
-print("======================================================")
-
-
-normalized_counts <- counts(
+saveRDS(
   dds,
-  normalized = TRUE
-)
-
-
-############################################################
-# ADD GENE NAMES TO NORMALIZED COUNTS
-############################################################
-
-normalized_counts_df <- as.data.frame(
-  normalized_counts
-)
-
-normalized_counts_df$Systematic_ID <-
-  rownames(
-    normalized_counts_df
-  )
-
-
-normalized_counts_df$Gene_Name <-
-  gene_annotation$Gene_Name[
-    match(
-      normalized_counts_df$Systematic_ID,
-      gene_annotation$Systematic_ID
-    )
-  ]
-
-
-############################################################
-# PUT ANNOTATION COLUMNS FIRST
-############################################################
-
-normalized_counts_df <- normalized_counts_df[
-  ,
-  c(
-    "Gene_Name",
-    "Systematic_ID",
-    setdiff(
-      colnames(normalized_counts_df),
-      c(
-        "Gene_Name",
-        "Systematic_ID"
-      )
-    )
-  ),
-  drop = FALSE
-]
-
-
-write.csv(
-  
-  normalized_counts_df,
-  
   file.path(
     output_dir,
     "02_DE_results",
-    "Normalized_counts_with_gene_names.csv"
-  ),
-  
-  row.names = FALSE
-  
+    "DESeq2_object.rds"
+  )
 )
 
 
 ############################################################
-# 12. VST TRANSFORMATION
+# 10. VST TRANSFORMATION
 ############################################################
 
 print("======================================================")
@@ -1279,2648 +1388,613 @@ vsd <- vst(
   blind = FALSE
 )
 
-
-vst_matrix <- assay(
-  vsd
-)
+vst_matrix <- assay(vsd)
 
 
 ############################################################
-# SAVE VST MATRIX WITH GENE NAMES
+# SAVE VST MATRIX
 ############################################################
-
-vst_df <- as.data.frame(
-  vst_matrix
-)
-
-vst_df$Systematic_ID <-
-  rownames(vst_df)
-
-vst_df$Gene_Name <-
-  gene_annotation$Gene_Name[
-    match(
-      vst_df$Systematic_ID,
-      gene_annotation$Systematic_ID
-    )
-  ]
-
-
-vst_df <- vst_df[
-  ,
-  c(
-    "Gene_Name",
-    "Systematic_ID",
-    setdiff(
-      colnames(vst_df),
-      c(
-        "Gene_Name",
-        "Systematic_ID"
-      )
-    )
-  ),
-  drop = FALSE
-]
-
 
 write.csv(
-  
-  vst_df,
-  
+
+  vst_matrix,
+
   file.path(
     output_dir,
-    "02_DE_results",
-    "VST_expression_matrix_with_gene_names.csv"
+    "01_QC",
+    "VST_expression_matrix.csv"
   ),
-  
-  row.names = FALSE
-  
+
+  row.names = TRUE
+
 )
 
 
 ############################################################
-# 13. LIBRARY SIZE QC
+# 11. LIBRARY SIZE QC
 ############################################################
-
-print("======================================================")
-print("GENERATING LIBRARY SIZE PLOT")
-print("======================================================")
-
 
 library_sizes <- colSums(
   counts(dds)
 )
 
+library_size_df <- data.frame(
 
-library_df <- data.frame(
-  
   Sample = names(library_sizes),
-  
-  Reads = as.numeric(
+
+  Library_Size = as.numeric(
     library_sizes
   ),
-  
-  Condition = metadata[
-    names(library_sizes),
-    "Condition"
-  ],
-  
-  Display_Name = metadata[
-    names(library_sizes),
-    "Display_Name"
-  ],
-  
+
+  Condition = metadata$Condition,
+
   stringsAsFactors = FALSE
-  
+
 )
 
+write.csv(
 
-p_library <- ggplot(
-  
-  library_df,
-  
-  aes(
-    x = Display_Name,
-    y = Reads,
-    fill = Condition
-  )
-  
-) +
-  
-  geom_col() +
-  
-  theme_bw() +
-  
-  labs(
-    title = "RNA-seq Library Sizes",
-    x = "Sample",
-    y = "Total Assigned Reads",
-    fill = "Condition"
-  ) +
-  
-  theme(
-    
-    axis.text.x = element_text(
-      angle = 45,
-      hjust = 1,
-      size = 10
-    ),
-    
-    axis.title = element_text(
-      size = 13,
-      face = "bold"
-    ),
-    
-    plot.title = element_text(
-      size = 15,
-      face = "bold"
-    )
-    
-  )
+  library_size_df,
 
-
-ggsave(
-  
   file.path(
     output_dir,
     "01_QC",
-    "Library_Sizes.png"
+    "Library_sizes.csv"
   ),
-  
+
+  row.names = FALSE
+
+)
+
+
+############################################################
+# LIBRARY SIZE PLOT
+############################################################
+
+p_library <- ggplot(
+  library_size_df,
+  aes(
+    x = Sample,
+    y = Library_Size
+  )
+) +
+
+  geom_col() +
+
+  theme_bw() +
+
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    )
+  ) +
+
+  labs(
+    title = "RNA-seq library sizes",
+    x = "Sample",
+    y = "Total assigned reads"
+  )
+
+
+ggsave(
+
+  file.path(
+    output_dir,
+    "01_QC",
+    "Library_sizes.png"
+  ),
+
   p_library,
-  
-  width = 11,
+
+  width = 10,
+  height = 6,
+  dpi = 300
+
+)
+
+
+############################################################
+# 12. PCA
+############################################################
+
+print("======================================================")
+print("CREATING PCA")
+print("======================================================")
+
+
+pca_data <- plotPCA(
+  vsd,
+  intgroup = c(
+    "Genotype",
+    "Pi"
+  ),
+  returnData = TRUE
+)
+
+
+percent_variance <- round(
+  100 *
+    attr(
+      pca_data,
+      "percentVar"
+    )
+)
+
+
+p_pca <- ggplot(
+
+  pca_data,
+
+  aes(
+    x = PC1,
+    y = PC2,
+    label = name
+  )
+
+) +
+
+  geom_point(
+    size = 4
+  ) +
+
+  geom_text_repel(
+    size = 3
+  ) +
+
+  theme_bw() +
+
+  labs(
+
+    title = "PCA of RNA-seq samples",
+
+    x = paste0(
+      "PC1: ",
+      percent_variance[1],
+      "% variance"
+    ),
+
+    y = paste0(
+      "PC2: ",
+      percent_variance[2],
+      "% variance"
+    )
+
+  )
+
+
+ggsave(
+
+  file.path(
+    output_dir,
+    "06_PCA",
+    "PCA_PC1_PC2.png"
+  ),
+
+  p_pca,
+
+  width = 9,
   height = 7,
   dpi = 300
-  
+
 )
 
 
 ############################################################
-# 14. 12-SAMPLE PCA
-#
-# All biological replicates remain separate.
+# 13. SAMPLE CORRELATION MATRIX
 ############################################################
 
-print("======================================================")
-print("GENERATING 12-SAMPLE PCA")
-print("======================================================")
-
-
-pca_result <- prcomp(
-  
-  t(vst_matrix),
-  
-  center = TRUE,
-  
-  scale. = FALSE
-  
-)
-
-
-percent_variance <- (
-  
-  pca_result$sdev^2 /
-    sum(
-      pca_result$sdev^2
-    )
-  
-) * 100
-
-
-############################################################
-# CREATE PCA DATAFRAME
-############################################################
-
-num_pcs <- min(
-  4,
-  ncol(pca_result$x)
-)
-
-
-pca_data <- data.frame(
-  
-  Sample = rownames(
-    pca_result$x
-  ),
-  
-  pca_result$x[
-    ,
-    seq_len(num_pcs),
-    drop = FALSE
-  ],
-  
-  stringsAsFactors = FALSE
-  
-)
-
-
-colnames(
-  pca_data
-)[2:(num_pcs + 1)] <-
-  paste0(
-    "PC",
-    seq_len(num_pcs)
-  )
-
-
-############################################################
-# ADD METADATA
-############################################################
-
-pca_data$Display_Name <- metadata[
-  pca_data$Sample,
-  "Display_Name"
-]
-
-pca_data$Genotype <- metadata[
-  pca_data$Sample,
-  "Genotype"
-]
-
-pca_data$Pi <- metadata[
-  pca_data$Sample,
-  "Pi"
-]
-
-pca_data$Condition <- metadata[
-  pca_data$Sample,
-  "Condition"
-]
-
-pca_data$Replicate <- metadata[
-  pca_data$Sample,
-  "Replicate"
-]
-
-
-############################################################
-# SAVE PCA COORDINATES
-############################################################
-
-write.csv(
-  
-  pca_data,
-  
-  file.path(
-    output_dir,
-    "06_PCA",
-    "PCA_12_sample_coordinates.csv"
-  ),
-  
-  row.names = FALSE
-  
-)
-
-
-############################################################
-# PCA PC1 VS PC2
-############################################################
-
-p_pca12 <- ggplot(
-  
-  pca_data,
-  
-  aes(
-    x = PC1,
-    y = PC2,
-    color = Genotype,
-    shape = Pi
-  )
-  
-) +
-  
-  geom_point(
-    size = 5
-  ) +
-  
-  geom_text_repel(
-    aes(
-      label = Display_Name
-    ),
-    size = 3.2,
-    max.overlaps = 30
-  ) +
-  
-  theme_bw() +
-  
-  labs(
-    
-    title = "PCA of RNA-seq Samples",
-    
-    subtitle = "All 12 biological replicates",
-    
-    x = paste0(
-      "PC1 (",
-      round(
-        percent_variance[1],
-        1
-      ),
-      "% variance)"
-    ),
-    
-    y = paste0(
-      "PC2 (",
-      round(
-        percent_variance[2],
-        1
-      ),
-      "% variance)"
-    ),
-    
-    color = "Genotype",
-    
-    shape = "Phosphate"
-    
-  ) +
-  
-  theme(
-    
-    axis.title = element_text(
-      size = 14,
-      face = "bold"
-    ),
-    
-    axis.text = element_text(
-      size = 11
-    ),
-    
-    plot.title = element_text(
-      size = 16,
-      face = "bold"
-    )
-    
-  )
-
-
-ggsave(
-  
-  file.path(
-    output_dir,
-    "06_PCA",
-    "PCA_12_samples_PC1_PC2.png"
-  ),
-  
-  p_pca12,
-  
-  width = 10,
-  height = 8,
-  dpi = 300
-  
-)
-
-
-############################################################
-# PCA PC1 VS PC3
-############################################################
-
-if ("PC3" %in% colnames(pca_data)) {
-  
-  p_pca13 <- ggplot(
-    
-    pca_data,
-    
-    aes(
-      x = PC1,
-      y = PC3,
-      color = Genotype,
-      shape = Pi
-    )
-    
-  ) +
-    
-    geom_point(
-      size = 5
-    ) +
-    
-    geom_text_repel(
-      aes(
-        label = Display_Name
-      ),
-      size = 3.2,
-      max.overlaps = 30
-    ) +
-    
-    theme_bw() +
-    
-    labs(
-      
-      title = "PCA of RNA-seq Samples: PC1 vs PC3",
-      
-      x = paste0(
-        "PC1 (",
-        round(
-          percent_variance[1],
-          1
-        ),
-        "% variance)"
-      ),
-      
-      y = paste0(
-        "PC3 (",
-        round(
-          percent_variance[3],
-          1
-        ),
-        "% variance)"
-      ),
-      
-      color = "Genotype",
-      
-      shape = "Phosphate"
-      
-    ) +
-    
-    theme(
-      
-      axis.title = element_text(
-        size = 14,
-        face = "bold"
-      ),
-      
-      axis.text = element_text(
-        size = 11
-      ),
-      
-      plot.title = element_text(
-        size = 16,
-        face = "bold"
-      )
-      
-    )
-  
-  
-  ggsave(
-    
-    file.path(
-      output_dir,
-      "06_PCA",
-      "PCA_12_samples_PC1_PC3.png"
-    ),
-    
-    p_pca13,
-    
-    width = 10,
-    height = 8,
-    dpi = 300
-    
-  )
-  
-}
-
-
-############################################################
-# PRINT VARIANCE EXPLAINED
-############################################################
-
-print("======================================================")
-print("PERCENT VARIANCE EXPLAINED")
-print("======================================================")
-
-
-print(
-  round(
-    percent_variance[
-      1:min(
-        10,
-        length(percent_variance)
-      )
-    ],
-    2
-  )
-)
-
-
-############################################################
-# 15. CONDITION-LEVEL MEAN VST MATRIX
-#
-# The three biological replicates are averaged ONLY HERE.
-#
-# This produces four columns:
-#
-# WT +Pi
-# WT -Pi
-# kcs1 +Pi
-# kcs1 -Pi
-############################################################
-
-print("======================================================")
-print("CREATING FOUR-CONDITION MEAN EXPRESSION MATRIX")
-print("======================================================")
-
-
-condition_levels <- c(
-  "WT_plus",
-  "WT_minus",
-  "kcs1_plus",
-  "kcs1_minus"
-)
-
-
-condition_display_names <- c(
-  "WT +Pi",
-  "WT -Pi",
-  "kcs1 +Pi",
-  "kcs1 -Pi"
-)
-
-
-condition_mean_matrix <- sapply(
-  
-  condition_levels,
-  
-  function(condition_name) {
-    
-    sample_indices <- which(
-      metadata$Condition == condition_name
-    )
-    
-    rowMeans(
-      vst_matrix[
-        ,
-        sample_indices,
-        drop = FALSE
-      ]
-    )
-    
-  }
-  
-)
-
-
-colnames(
-  condition_mean_matrix
-) <- condition_display_names
-
-
-############################################################
-# SAVE CONDITION-LEVEL MATRIX
-############################################################
-
-condition_mean_df <- as.data.frame(
-  condition_mean_matrix
-)
-
-
-condition_mean_df$Systematic_ID <-
-  rownames(
-    condition_mean_df
-  )
-
-
-condition_mean_df$Gene_Name <-
-  gene_annotation$Gene_Name[
-    match(
-      condition_mean_df$Systematic_ID,
-      gene_annotation$Systematic_ID
-    )
-  ]
-
-
-condition_mean_df <- condition_mean_df[
-  ,
-  c(
-    "Gene_Name",
-    "Systematic_ID",
-    condition_display_names
-  ),
-  drop = FALSE
-]
-
-
-write.csv(
-  
-  condition_mean_df,
-  
-  file.path(
-    output_dir,
-    "06_PCA",
-    "Four_Condition_Mean_VST_Expression.csv"
-  ),
-  
-  row.names = FALSE
-  
-)
-
-
-############################################################
-# 16. CONDITION-LEVEL PCA
-############################################################
-
-print("======================================================")
-print("GENERATING FOUR-CONDITION PCA")
-print("======================================================")
-
-
-condition_pca <- prcomp(
-  
-  t(condition_mean_matrix),
-  
-  center = TRUE,
-  
-  scale. = FALSE
-  
-)
-
-
-condition_percent_variance <- (
-  
-  condition_pca$sdev^2 /
-    sum(
-      condition_pca$sdev^2
-    )
-  
-) * 100
-
-
-############################################################
-# CONDITION PCA DATAFRAME
-############################################################
-
-condition_pca_data <- data.frame(
-  
-  Condition = rownames(
-    condition_pca$x
-  ),
-  
-  PC1 = condition_pca$x[, 1],
-  
-  PC2 = condition_pca$x[, 2],
-  
-  PC3 = condition_pca$x[, 3],
-  
-  PC4 = condition_pca$x[, 4],
-  
-  stringsAsFactors = FALSE
-  
-)
-
-
-condition_pca_data$Genotype <- c(
-  "WT",
-  "WT",
-  "kcs1",
-  "kcs1"
-)
-
-
-condition_pca_data$Pi <- c(
-  "plus",
-  "minus",
-  "plus",
-  "minus"
-)
-
-
-############################################################
-# SAVE CONDITION PCA
-############################################################
-
-write.csv(
-  
-  condition_pca_data,
-  
-  file.path(
-    output_dir,
-    "06_PCA",
-    "Condition_Level_PCA_coordinates.csv"
-  ),
-  
-  row.names = FALSE
-  
-)
-
-
-############################################################
-# CONDITION PCA PLOT
-############################################################
-
-p_condition_pca <- ggplot(
-  
-  condition_pca_data,
-  
-  aes(
-    x = PC1,
-    y = PC2,
-    label = Condition
-  )
-  
-) +
-  
-  geom_point(
-    size = 7
-  ) +
-  
-  geom_text_repel(
-    size = 5,
-    box.padding = 0.5
-  ) +
-  
-  theme_classic() +
-  
-  labs(
-    
-    title =
-      "PCA of Condition-Level Transcriptomes",
-    
-    subtitle =
-      "Three biological replicates averaged within each condition",
-    
-    x = paste0(
-      "PC1 (",
-      round(
-        condition_percent_variance[1],
-        1
-      ),
-      "% variance)"
-    ),
-    
-    y = paste0(
-      "PC2 (",
-      round(
-        condition_percent_variance[2],
-        1
-      ),
-      "% variance)"
-    )
-    
-  ) +
-  
-  theme(
-    
-    plot.title = element_text(
-      size = 17,
-      face = "bold"
-    ),
-    
-    plot.subtitle = element_text(
-      size = 11
-    ),
-    
-    axis.title = element_text(
-      size = 14,
-      face = "bold"
-    ),
-    
-    axis.text = element_text(
-      size = 12
-    )
-    
-  )
-
-
-ggsave(
-  
-  file.path(
-    output_dir,
-    "06_PCA",
-    "PCA_Condition_Level_PC1_PC2.png"
-  ),
-  
-  p_condition_pca,
-  
-  width = 10,
-  height = 8,
-  dpi = 300
-  
-)
-
-
-############################################################
-# 17. SAMPLE-TO-SAMPLE CORRELATION HEATMAP
-#
-# ALL 12 biological replicates are retained.
-############################################################
-
-print("======================================================")
-print("GENERATING 12-SAMPLE CORRELATION HEATMAP")
-print("======================================================")
-
-
-sample_cor <- cor(
+cor_matrix <- cor(
   vst_matrix,
   method = "pearson"
 )
 
 
-############################################################
-# REPLACE SAMPLE NAMES WITH DISPLAY NAMES
-############################################################
+write.csv(
 
-rownames(sample_cor) <-
-  metadata$Display_Name[
-    match(
-      rownames(sample_cor),
-      rownames(metadata)
-    )
-  ]
+  cor_matrix,
 
-colnames(sample_cor) <-
-  metadata$Display_Name[
-    match(
-      colnames(sample_cor),
-      rownames(metadata)
-    )
-  ]
-
-
-png(
-  
   file.path(
     output_dir,
     "07_Sample_correlations",
-    "Sample_Correlation_Heatmap_12_samples.png"
-  ),
-  
-  width = 1300,
-  height = 1200,
-  res = 150
-  
-)
+    "Sample_Pearson_correlations.csv"
+  )
 
-
-pheatmap(
-  
-  sample_cor,
-  
-  clustering_distance_rows =
-    "correlation",
-  
-  clustering_distance_cols =
-    "correlation",
-  
-  display_numbers = TRUE,
-  
-  number_format = "%.2f",
-  
-  fontsize_number = 7,
-  
-  fontsize_row = 8,
-  
-  fontsize_col = 8,
-  
-  main =
-    "Sample-to-Sample Pearson Correlation"
-  
-)
-
-
-dev.off()
-
-
-############################################################
-# 18. CONDITION-LEVEL CORRELATION HEATMAP
-############################################################
-
-print("======================================================")
-print("GENERATING FOUR-CONDITION CORRELATION HEATMAP")
-print("======================================================")
-
-
-condition_cor <- cor(
-  condition_mean_matrix,
-  method = "pearson"
 )
 
 
 png(
-  
+
   file.path(
     output_dir,
     "07_Sample_correlations",
-    "Condition_Level_Correlation_Heatmap.png"
+    "Sample_Pearson_correlations.png"
   ),
-  
-  width = 1000,
-  height = 900,
-  res = 150
-  
-)
 
+  width = 2200,
+  height = 2000,
+  res = 300
+
+)
 
 pheatmap(
-  
-  condition_cor,
-  
-  display_numbers = TRUE,
-  
-  number_format = "%.2f",
-  
-  fontsize_number = 9,
-  
-  fontsize_row = 11,
-  
-  fontsize_col = 11,
-  
-  main =
-    "Condition-Level Pearson Correlation"
-  
-)
 
+  cor_matrix,
+
+  clustering_distance_rows = "correlation",
+
+  clustering_distance_cols = "correlation",
+
+  main = "Sample Pearson correlations",
+
+  fontsize = 8
+
+)
 
 dev.off()
 
 
 ############################################################
-# 19. TOP 100 VARIABLE GENES
+# 14. DIFFERENTIAL EXPRESSION RESULTS
+############################################################
 #
-# ALL 12 samples are used to calculate variance.
-############################################################
-
-print("======================================================")
-print("GENERATING TOP VARIABLE GENE HEATMAP")
-print("======================================================")
-
-
-gene_variances <- rowVars(
-  vst_matrix
-)
-
-
-top_variable <- order(
-  gene_variances,
-  decreasing = TRUE
-)[
-  1:min(
-    100,
-    length(gene_variances)
-  )
-]
-
-
-top_variable_matrix <- vst_matrix[
-  top_variable,
-  ,
-  drop = FALSE
-]
-
-
-############################################################
-# Z-SCORE EACH GENE
-############################################################
-
-top_variable_scaled <- t(
-  scale(
-    t(
-      top_variable_matrix
-    )
-  )
-)
-
-
-############################################################
-# CREATE SAMPLE ANNOTATION
-############################################################
-
-annotation_col <- data.frame(
-  
-  Genotype = metadata$Genotype,
-  
-  Pi = metadata$Pi,
-  
-  Condition = metadata$Condition
-  
-)
-
-
-rownames(annotation_col) <-
-  rownames(metadata)
-
-
-############################################################
-# REPLACE SAMPLE NAMES WITH DISPLAY NAMES
-############################################################
-
-rownames(annotation_col) <-
-  metadata$Display_Name[
-    match(
-      rownames(annotation_col),
-      rownames(metadata)
-    )
-  ]
-
-
-colnames(top_variable_scaled) <-
-  metadata$Display_Name[
-    match(
-      colnames(top_variable_scaled),
-      rownames(metadata)
-    )
-  ]
-
-
-############################################################
-# REPLACE HEATMAP GENE IDS WITH GENE NAMES
-############################################################
-
-top_variable_gene_names <- gene_annotation$Gene_Name[
-  match(
-    rownames(top_variable_scaled),
-    gene_annotation$Systematic_ID
-  )
-]
-
-
-top_variable_gene_names[
-  is.na(top_variable_gene_names) |
-    top_variable_gene_names == ""
-] <- rownames(
-  top_variable_scaled
-)[
-  is.na(top_variable_gene_names) |
-    top_variable_gene_names == ""
-]
-
-
-############################################################
-# MAKE DISPLAY NAMES UNIQUE
+# Main comparisons:
 #
-# Prevents problems if multiple CGD entries share a symbol.
-############################################################
-
-rownames(top_variable_scaled) <-
-  make.unique(
-    top_variable_gene_names
-  )
-
-
-############################################################
-# SAVE HEATMAP
-############################################################
-
-png(
-  
-  file.path(
-    output_dir,
-    "05_Heatmaps",
-    "Top_100_Variable_Genes_12_samples.png"
-  ),
-  
-  width = 1300,
-  height = 1500,
-  res = 150
-  
-)
-
-
-pheatmap(
-  
-  top_variable_scaled,
-  
-  annotation_col = annotation_col,
-  
-  cluster_rows = TRUE,
-  
-  cluster_cols = TRUE,
-  
-  show_rownames = FALSE,
-  
-  fontsize_col = 9,
-  
-  main =
-    "Top 100 Most Variable Genes"
-  
-)
-
-
-dev.off()
-
-
-############################################################
-# 20. FOUR-CONDITION TOP VARIABLE GENE HEATMAP
-############################################################
-
-print("======================================================")
-print("GENERATING FOUR-CONDITION VARIABLE GENE HEATMAP")
-print("======================================================")
-
-
-condition_gene_variances <- apply(
-  
-  condition_mean_matrix,
-  
-  1,
-  
-  var
-  
-)
-
-
-top_condition_variable <- order(
-  
-  condition_gene_variances,
-  
-  decreasing = TRUE
-  
-)[
-  1:min(
-    100,
-    length(condition_gene_variances)
-  )
-]
-
-
-condition_variable_matrix <-
-  condition_mean_matrix[
-    top_condition_variable,
-    ,
-    drop = FALSE
-  ]
-
-
-############################################################
-# Z-SCORE GENES
-############################################################
-
-condition_variable_scaled <- t(
-  
-  scale(
-    t(
-      condition_variable_matrix
-    )
-  )
-  
-)
-
-
-############################################################
-# REPLACE GENE IDS WITH GENE NAMES
-############################################################
-
-condition_gene_names <- gene_annotation$Gene_Name[
-  match(
-    rownames(condition_variable_scaled),
-    gene_annotation$Systematic_ID
-  )
-]
-
-
-condition_gene_names[
-  is.na(condition_gene_names) |
-    condition_gene_names == ""
-] <- rownames(
-  condition_variable_scaled
-)[
-  is.na(condition_gene_names) |
-    condition_gene_names == ""
-]
-
-
-rownames(condition_variable_scaled) <-
-  make.unique(
-    condition_gene_names
-  )
-
-
-############################################################
-# FOUR-CONDITION HEATMAP
-############################################################
-
-png(
-  
-  file.path(
-    output_dir,
-    "05_Heatmaps",
-    "Top_100_Variable_Genes_4_Conditions.png"
-  ),
-  
-  width = 1100,
-  height = 1500,
-  res = 150
-  
-)
-
-
-pheatmap(
-  
-  condition_variable_scaled,
-  
-  cluster_rows = TRUE,
-  
-  cluster_cols = TRUE,
-  
-  show_rownames = FALSE,
-  
-  fontsize_col = 11,
-  
-  main =
-    "Top 100 Most Variable Genes\nCondition-Level Profiles"
-  
-)
-
-
-dev.off()
-
-
-############################################################
-# 21. DEFINE THE FIVE BIOLOGICAL CONTRASTS
-############################################################
-
-print("======================================================")
-print("RUNNING BIOLOGICAL CONTRASTS")
-print("======================================================")
-
-
-############################################################
-# CONTRAST 1
+# 1. kcs1 +Pi vs WT +Pi
+# 2. WT -Pi vs WT +Pi
+# 3. kcs1 -Pi vs kcs1 +Pi
+# 4. kcs1 -Pi vs WT -Pi
+# 5. Genotype × Pi interaction
 #
-# kcs1 vs WT under +Pi
-#
-# Genotype coefficient
 ############################################################
 
-res_kcs1_plus <- results(
-  
+
+############################################################
+# COMPARISON 1
+# kcs1 +Pi vs WT +Pi
+############################################################
+
+res_kcs1_plus_vs_WT_plus <- results(
+
   dds,
-  
+
   contrast = list(
-    genotype_coef
-  )
-  
+    c(
+      "Genotype_kcs1_vs_WT"
+    )
+  ),
+
+  name = NULL
+
 )
 
 
 ############################################################
-# CONTRAST 2
-#
+# IMPORTANT:
+# For the simple genotype contrasts, use the explicit
+# condition-based comparisons below.
+############################################################
+
+res_kcs1_plus_vs_WT_plus <- results(
+
+  dds,
+
+  contrast = c(
+    "Genotype",
+    "kcs1",
+    "WT"
+  ),
+
+  name = NULL
+
+)
+
+
+############################################################
+# COMPARISON 2
 # WT -Pi vs WT +Pi
-#
-# Pi coefficient
 ############################################################
 
-res_WT_starvation <- results(
-  
+res_WT_minus_vs_plus <- results(
+
   dds,
-  
+
   contrast = list(
-    pi_coef
+    c(
+      "Pi_minus_vs_plus"
+    )
   )
-  
+
 )
 
 
 ############################################################
-# CONTRAST 3
-#
+# COMPARISON 3
 # kcs1 -Pi vs kcs1 +Pi
-#
-# Pi main effect + genotype × Pi interaction
 ############################################################
 
-res_kcs1_starvation <- results(
-  
+res_kcs1_minus_vs_plus <- results(
+
   dds,
-  
+
+  contrast = list(
+
+    c(
+      "Pi_minus_vs_plus"
+    ),
+
+    c(
+      "Genotypekcs1.Piminus"
+    )
+
+  )
+
+)
+
+
+############################################################
+# GET ALL RESULTS NEEDED FOR THE INTERACTION ANALYSIS
+############################################################
+
+results_names <- resultsNames(dds)
+
+print("======================================================")
+print("DESeq2 COEFFICIENTS")
+print("======================================================")
+
+print(results_names)
+
+
+############################################################
+# EXTRACT INTERACTION TERM
+############################################################
+
+interaction_name <- results_names[
+  grepl(
+    "Genotype.*Pi|Pi.*Genotype",
+    results_names
+  )
+][1]
+
+
+if (is.na(interaction_name)) {
+
+  stop(
+    paste0(
+      "\nERROR: Could not identify the Genotype × Pi interaction coefficient.\n\n",
+      "Available coefficients:\n",
+      paste(
+        results_names,
+        collapse = "\n"
+      )
+    )
+  )
+
+}
+
+
+print(
+  paste(
+    "Interaction coefficient:",
+    interaction_name
+  )
+)
+
+
+res_interaction <- results(
+  dds,
+  name = interaction_name
+)
+
+
+############################################################
+# SIMPLE CONDITION CONTRASTS
+############################################################
+#
+# These are calculated directly using the four-condition
+# factor created from the design.
+#
+############################################################
+
+condition_dds <- dds
+
+condition_dds$Condition <- factor(
+
+  condition_dds$Condition,
+
+  levels = c(
+    "WT_plus",
+    "WT_minus",
+    "kcs1_plus",
+    "kcs1_minus"
+  )
+
+)
+
+
+############################################################
+# NOTE:
+#
+# We retain the factorial DESeq2 model above for the actual
+# statistical interaction test.
+#
+# For condition-specific pairwise results, use the original
+# factorial model with explicit coefficient combinations.
+#
+############################################################
+
+
+############################################################
+# HELPER FUNCTION TO ADD GENE NAMES
+############################################################
+
+add_gene_names <- function(
+  result_table
+) {
+
+  result_df <- as.data.frame(
+    result_table
+  )
+
+  result_df$Systematic_ID <- rownames(
+    result_df
+  )
+
+  result_df$Gene_Name <- gene_annotation$Gene_Name[
+    match(
+      result_df$Systematic_ID,
+      gene_annotation$Systematic_ID
+    )
+  ]
+
+  result_df$Display_Name <- ifelse(
+
+    !is.na(result_df$Gene_Name) &
+      result_df$Gene_Name != "",
+
+    result_df$Gene_Name,
+
+    result_df$Systematic_ID
+
+  )
+
+  result_df <- result_df[
+    ,
+    c(
+      "Systematic_ID",
+      "Gene_Name",
+      "Display_Name",
+      setdiff(
+        colnames(result_df),
+        c(
+          "Systematic_ID",
+          "Gene_Name",
+          "Display_Name"
+        )
+      )
+    )
+  ]
+
+  result_df
+
+}
+
+
+############################################################
+# 15. CORRECT FACTORIAL CONTRASTS
+############################################################
+
+print("======================================================")
+print("CALCULATING DIFFERENTIAL EXPRESSION CONTRASTS")
+print("======================================================")
+
+
+############################################################
+# GET COEFFICIENT NAMES
+############################################################
+
+print(resultsNames(dds))
+
+
+############################################################
+# GENOTYPE EFFECT
+# kcs1 vs WT at +Pi
+############################################################
+
+genotype_coef <- results_names[
+  grepl(
+    "^Genotype_kcs1_vs_WT$",
+    results_names
+  )
+]
+
+if (length(genotype_coef) != 1) {
+
+  stop(
+    "ERROR: Could not identify Genotype_kcs1_vs_WT coefficient."
+  )
+
+}
+
+res_kcs1_plus_vs_WT_plus <- results(
+  dds,
+  name = genotype_coef
+)
+
+
+############################################################
+# WT PHOSPHATE RESPONSE
+# WT -Pi vs WT +Pi
+############################################################
+
+pi_coef <- results_names[
+  grepl(
+    "^Pi_minus_vs_plus$",
+    results_names
+  )
+]
+
+if (length(pi_coef) != 1) {
+
+  stop(
+    "ERROR: Could not identify Pi_minus_vs_plus coefficient."
+  )
+
+}
+
+res_WT_minus_vs_plus <- results(
+  dds,
+  name = pi_coef
+)
+
+
+############################################################
+# kcs1 PHOSPHATE RESPONSE
+# kcs1 -Pi vs kcs1 +Pi
+############################################################
+
+interaction_coef <- interaction_name
+
+res_kcs1_minus_vs_plus <- results(
+
+  dds,
+
   contrast = list(
     c(
       pi_coef,
       interaction_coef
     )
   )
-  
+
 )
 
 
 ############################################################
-# CONTRAST 4
-#
-# kcs1 vs WT under -Pi
-#
-# Genotype effect + interaction
+# GENOTYPE EFFECT UNDER -Pi
+# kcs1 -Pi vs WT -Pi
 ############################################################
 
-res_kcs1_minus <- results(
-  
+res_kcs1_minus_vs_WT_minus <- results(
+
   dds,
-  
+
   contrast = list(
     c(
       genotype_coef,
       interaction_coef
     )
   )
-  
+
 )
 
 
 ############################################################
-# CONTRAST 5
-#
 # GENOTYPE × PI INTERACTION
-#
-# Directly tests whether the starvation response differs
-# between WT and kcs1.
 ############################################################
 
 res_interaction <- results(
-  
   dds,
-  
   name = interaction_coef
-  
-)
-
-
-############################################################
-# 22. FUNCTION TO ANNOTATE DE RESULTS
-############################################################
-
-annotate_DE_results <- function(
-    res
-) {
-  
-  df <- as.data.frame(
-    res
-  )
-  
-  
-  ##########################################################
-  # ORIGINAL SYSTEMATIC ID
-  ##########################################################
-  
-  df$Systematic_ID <-
-    rownames(df)
-  
-  
-  ##########################################################
-  # MATCH GENE NAME
-  ##########################################################
-  
-  df$Gene_Name <-
-    gene_annotation$Gene_Name[
-      match(
-        df$Systematic_ID,
-        gene_annotation$Systematic_ID
-      )
-    ]
-  
-  
-  ##########################################################
-  # FALL BACK TO SYSTEMATIC ID
-  ##########################################################
-  
-  missing_name <- (
-    is.na(df$Gene_Name) |
-      df$Gene_Name == ""
-  )
-  
-  
-  df$Gene_Name[
-    missing_name
-  ] <- df$Systematic_ID[
-    missing_name
-  ]
-  
-  
-  ##########################################################
-  # PUT GENE INFORMATION FIRST
-  ##########################################################
-  
-  df <- df[
-    ,
-    c(
-      "Gene_Name",
-      "Systematic_ID",
-      setdiff(
-        colnames(df),
-        c(
-          "Gene_Name",
-          "Systematic_ID"
-        )
-      )
-    ),
-    drop = FALSE
-  ]
-  
-  
-  return(df)
-  
-}
-
-
-############################################################
-# 23. FUNCTION TO SAVE DE RESULTS
-############################################################
-
-save_de_results <- function(
-    res,
-    comparison_name
-) {
-  
-  
-  df <- annotate_DE_results(
-    res
-  )
-  
-  
-  ##########################################################
-  # SORT BY ADJUSTED P-VALUE
-  ##########################################################
-  
-  df$padj_numeric <- as.numeric(
-    df$padj
-  )
-  
-  
-  df <- df[
-    order(
-      df$padj_numeric,
-      na.last = TRUE
-    ),
-    ,
-    drop = FALSE
-  ]
-  
-  
-  df$padj_numeric <- NULL
-  
-  
-  ##########################################################
-  # SAVE ALL GENES
-  ##########################################################
-  
-  write.csv(
-    
-    df,
-    
-    file.path(
-      output_dir,
-      "02_DE_results",
-      paste0(
-        comparison_name,
-        "_ALL_genes.csv"
-      )
-    ),
-    
-    row.names = FALSE
-    
-  )
-  
-  
-  ##########################################################
-  # SIGNIFICANT GENES
-  #
-  # padj < 0.05
-  # |log2FC| >= 1
-  ##########################################################
-  
-  sig <- df[
-    
-    !is.na(df$padj) &
-      df$padj < 0.05 &
-      !is.na(df$log2FoldChange) &
-      abs(df$log2FoldChange) >= 1,
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  write.csv(
-    
-    sig,
-    
-    file.path(
-      output_dir,
-      "08_Significant_gene_lists",
-      paste0(
-        comparison_name,
-        "_Significant_padj0.05_absLog2FC1.csv"
-      )
-    ),
-    
-    row.names = FALSE
-    
-  )
-  
-  
-  ##########################################################
-  # UPREGULATED
-  ##########################################################
-  
-  sig_up <- sig[
-    
-    sig$log2FoldChange >= 1,
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  write.csv(
-    
-    sig_up,
-    
-    file.path(
-      output_dir,
-      "08_Significant_gene_lists",
-      paste0(
-        comparison_name,
-        "_UP.csv"
-      )
-    ),
-    
-    row.names = FALSE
-    
-  )
-  
-  
-  ##########################################################
-  # DOWNREGULATED
-  ##########################################################
-  
-  sig_down <- sig[
-    
-    sig$log2FoldChange <= -1,
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  write.csv(
-    
-    sig_down,
-    
-    file.path(
-      output_dir,
-      "08_Significant_gene_lists",
-      paste0(
-        comparison_name,
-        "_DOWN.csv"
-      )
-    ),
-    
-    row.names = FALSE
-    
-  )
-  
-  
-  ##########################################################
-  # PRINT SUMMARY
-  ##########################################################
-  
-  print(
-    paste(
-      comparison_name,
-      "-> significant:",
-      nrow(sig),
-      "| up:",
-      nrow(sig_up),
-      "| down:",
-      nrow(sig_down)
-    )
-  )
-  
-  
-  return(df)
-  
-}
-
-
-############################################################
-# 24. SAVE ALL FIVE DE RESULTS
-############################################################
-
-res_kcs1_plus_df <- save_de_results(
-  
-  res_kcs1_plus,
-  
-  "Kcs1_vs_WT_PLUS_Pi"
-  
-)
-
-
-res_WT_starvation_df <- save_de_results(
-  
-  res_WT_starvation,
-  
-  "WT_MINUS_vs_PLUS_Pi"
-  
-)
-
-
-res_kcs1_starvation_df <- save_de_results(
-  
-  res_kcs1_starvation,
-  
-  "Kcs1_MINUS_vs_PLUS_Pi"
-  
-)
-
-
-res_kcs1_minus_df <- save_de_results(
-  
-  res_kcs1_minus,
-  
-  "Kcs1_vs_WT_MINUS_Pi"
-  
-)
-
-
-res_interaction_df <- save_de_results(
-  
-  res_interaction,
-  
-  "Kcs1_x_Pi_INTERACTION"
-  
-)
-
-
-############################################################
-# 25. DEG SUMMARY TABLE
-############################################################
-
-print("======================================================")
-print("CREATING DEG SUMMARY")
-print("======================================================")
-
-
-get_summary <- function(
-    res,
-    name
-) {
-  
-  
-  df <- as.data.frame(
-    res
-  )
-  
-  
-  sig <- df[
-    
-    !is.na(df$padj) &
-      df$padj < 0.05 &
-      !is.na(df$log2FoldChange) &
-      abs(df$log2FoldChange) >= 1,
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  data.frame(
-    
-    Comparison = name,
-    
-    Significant = nrow(sig),
-    
-    Upregulated =
-      sum(
-        sig$log2FoldChange >= 1
-      ),
-    
-    Downregulated =
-      sum(
-        sig$log2FoldChange <= -1
-      )
-    
-  )
-  
-}
-
-
-summary_table <- bind_rows(
-  
-  get_summary(
-    res_kcs1_plus,
-    "kcs1 vs WT +Pi"
-  ),
-  
-  get_summary(
-    res_WT_starvation,
-    "WT -Pi vs +Pi"
-  ),
-  
-  get_summary(
-    res_kcs1_starvation,
-    "kcs1 -Pi vs +Pi"
-  ),
-  
-  get_summary(
-    res_kcs1_minus,
-    "kcs1 vs WT -Pi"
-  ),
-  
-  get_summary(
-    res_interaction,
-    "Genotype × Pi interaction"
-  )
-  
-)
-
-
-write.csv(
-  
-  summary_table,
-  
-  file.path(
-    output_dir,
-    "02_DE_results",
-    "DEG_Summary_Table.csv"
-  ),
-  
-  row.names = FALSE
-  
-)
-
-
-print(summary_table)
-
-
-############################################################
-# 26. MA PLOT FUNCTION
-############################################################
-
-make_MA_plot <- function(
-    res,
-    comparison_name,
-    filename
-) {
-  
-  
-  png(
-    
-    filename,
-    
-    width = 1200,
-    height = 1000,
-    res = 150
-    
-  )
-  
-  
-  plotMA(
-    
-    res,
-    
-    alpha = 0.05,
-    
-    main = comparison_name
-    
-  )
-  
-  
-  dev.off()
-  
-}
-
-
-############################################################
-# 27. GENERATE MA PLOTS
-############################################################
-
-make_MA_plot(
-  
-  res_kcs1_plus,
-  
-  "kcs1 vs WT: +Pi",
-  
-  file.path(
-    output_dir,
-    "04_MA_plots",
-    "MA_Kcs1_vs_WT_PLUS_Pi.png"
-  )
-  
-)
-
-
-make_MA_plot(
-  
-  res_WT_starvation,
-  
-  "WT: -Pi vs +Pi",
-  
-  file.path(
-    output_dir,
-    "04_MA_plots",
-    "MA_WT_MINUS_vs_PLUS.png"
-  )
-  
-)
-
-
-make_MA_plot(
-  
-  res_kcs1_starvation,
-  
-  "kcs1: -Pi vs +Pi",
-  
-  file.path(
-    output_dir,
-    "04_MA_plots",
-    "MA_Kcs1_MINUS_vs_PLUS.png"
-  )
-  
-)
-
-
-make_MA_plot(
-  
-  res_kcs1_minus,
-  
-  "kcs1 vs WT: -Pi",
-  
-  file.path(
-    output_dir,
-    "04_MA_plots",
-    "MA_Kcs1_vs_WT_MINUS_Pi.png"
-  )
-  
-)
-
-
-make_MA_plot(
-  
-  res_interaction,
-  
-  "Genotype × Pi Interaction",
-  
-  file.path(
-    output_dir,
-    "04_MA_plots",
-    "MA_Genotype_Pi_Interaction.png"
-  )
-  
-)
-
-
-############################################################
-# 28. VOLCANO PLOT FUNCTION
-############################################################
-
-make_volcano <- function(
-    res,
-    comparison_name,
-    filename
-) {
-  
-  
-  df <- annotate_DE_results(
-    res
-  )
-  
-  
-  ##########################################################
-  # REMOVE MISSING VALUES
-  ##########################################################
-  
-  df <- df[
-    
-    !is.na(df$log2FoldChange) &
-      !is.na(df$padj),
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  ##########################################################
-  # LABEL SIGNIFICANT GENES
-  ##########################################################
-  
-  significant <- (
-    
-    df$padj < 0.05 &
-      abs(df$log2FoldChange) >= 1
-    
-  )
-  
-  
-  df$label <- NA_character_
-  
-  
-  df$label[
-    significant
-  ] <- df$Gene_Name[
-    significant
-  ]
-  
-  
-  ##########################################################
-  # PLOT
-  ##########################################################
-  
-  png(
-    
-    filename,
-    
-    width = 1500,
-    height = 1200,
-    res = 150
-    
-  )
-  
-  
-  p <- EnhancedVolcano(
-    
-    df,
-    
-    lab = df$label,
-    
-    x = "log2FoldChange",
-    
-    y = "padj",
-    
-    pCutoff = 0.05,
-    
-    FCcutoff = 1,
-    
-    title = comparison_name,
-    
-    subtitle =
-      "Labels: padj < 0.05 and |log2FC| ≥ 1",
-    
-    pointSize = 1.5,
-    
-    labSize = 3.5,
-    
-    drawConnectors = TRUE,
-    
-    widthConnectors = 0.4,
-    
-    max.overlaps = 50,
-    
-    legendPosition = "bottom"
-    
-  ) +
-    
-    theme(
-      
-      axis.title.x = element_text(
-        size = 16,
-        face = "bold"
-      ),
-      
-      axis.title.y = element_text(
-        size = 16,
-        face = "bold"
-      ),
-      
-      axis.text = element_text(
-        size = 13
-      ),
-      
-      plot.title = element_text(
-        size = 17,
-        face = "bold"
-      ),
-      
-      plot.subtitle = element_text(
-        size = 11
-      )
-      
-    )
-  
-  
-  print(p)
-  
-  
-  dev.off()
-  
-}
-
-
-############################################################
-# 29. GENERATE VOLCANO PLOTS
-############################################################
-
-make_volcano(
-  
-  res_kcs1_plus,
-  
-  "kcs1 vs WT: +Pi",
-  
-  file.path(
-    output_dir,
-    "03_Volcano",
-    "Volcano_Kcs1_vs_WT_PLUS_Pi.png"
-  )
-  
-)
-
-
-make_volcano(
-  
-  res_WT_starvation,
-  
-  "WT: -Pi vs +Pi",
-  
-  file.path(
-    output_dir,
-    "03_Volcano",
-    "Volcano_WT_MINUS_vs_PLUS.png"
-  )
-  
-)
-
-
-make_volcano(
-  
-  res_kcs1_starvation,
-  
-  "kcs1: -Pi vs +Pi",
-  
-  file.path(
-    output_dir,
-    "03_Volcano",
-    "Volcano_Kcs1_MINUS_vs_PLUS.png"
-  )
-  
-)
-
-
-make_volcano(
-  
-  res_kcs1_minus,
-  
-  "kcs1 vs WT: -Pi",
-  
-  file.path(
-    output_dir,
-    "03_Volcano",
-    "Volcano_Kcs1_vs_WT_MINUS_Pi.png"
-  )
-  
-)
-
-
-make_volcano(
-  
-  res_interaction,
-  
-  "Genotype × Phosphate Interaction",
-  
-  file.path(
-    output_dir,
-    "03_Volcano",
-    "Volcano_Genotype_Pi_Interaction.png"
-  )
-  
-)
-
-
-############################################################
-# 30. DE HEATMAP FUNCTION
-#
-# Uses ALL 12 biological replicates.
-############################################################
-
-make_DE_heatmap <- function(
-    res,
-    comparison_name,
-    filename,
-    n_genes = 50
-) {
-  
-  
-  df <- annotate_DE_results(
-    res
-  )
-  
-  
-  ##########################################################
-  # SELECT SIGNIFICANT GENES
-  ##########################################################
-  
-  sig <- df[
-    
-    !is.na(df$padj) &
-      df$padj < 0.05 &
-      !is.na(df$log2FoldChange) &
-      abs(df$log2FoldChange) >= 1,
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  if (nrow(sig) == 0) {
-    
-    print(
-      paste(
-        "No significant genes for:",
-        comparison_name
-      )
-    )
-    
-    return(NULL)
-    
-  }
-  
-  
-  ##########################################################
-  # SORT BY ADJUSTED P-VALUE
-  ##########################################################
-  
-  sig$padj_numeric <-
-    as.numeric(
-      sig$padj
-    )
-  
-  
-  sig <- sig[
-    
-    order(
-      sig$padj_numeric,
-      na.last = TRUE
-    ),
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  ##########################################################
-  # SELECT TOP GENES
-  ##########################################################
-  
-  selected_ids <- head(
-    
-    sig$Systematic_ID,
-    
-    n_genes
-    
-  )
-  
-  
-  selected_ids <- intersect(
-    
-    selected_ids,
-    
-    rownames(vst_matrix)
-    
-  )
-  
-  
-  if (length(selected_ids) == 0) {
-    
-    print(
-      paste(
-        "No genes available for heatmap:",
-        comparison_name
-      )
-    )
-    
-    return(NULL)
-    
-  }
-  
-  
-  ##########################################################
-  # CREATE EXPRESSION MATRIX
-  ##########################################################
-  
-  heatmap_data <- vst_matrix[
-    
-    selected_ids,
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  ##########################################################
-  # Z-SCORE EACH GENE
-  ##########################################################
-  
-  heatmap_scaled <- t(
-    
-    scale(
-      t(
-        heatmap_data
-      )
-    )
-    
-  )
-  
-  
-  ##########################################################
-  # REPLACE SAMPLE NAMES
-  ##########################################################
-  
-  colnames(heatmap_scaled) <-
-    metadata$Display_Name[
-      match(
-        colnames(heatmap_scaled),
-        rownames(metadata)
-      )
-    ]
-  
-  
-  ##########################################################
-  # REPLACE GENE IDS WITH GENE NAMES
-  ##########################################################
-  
-  heatmap_gene_names <- gene_annotation$Gene_Name[
-    
-    match(
-      selected_ids,
-      gene_annotation$Systematic_ID
-    )
-    
-  ]
-  
-  
-  missing_names <- (
-    
-    is.na(heatmap_gene_names) |
-      heatmap_gene_names == ""
-    
-  )
-  
-  
-  heatmap_gene_names[
-    missing_names
-  ] <- selected_ids[
-    missing_names
-  ]
-  
-  
-  rownames(heatmap_scaled) <-
-    make.unique(
-      heatmap_gene_names
-    )
-  
-  
-  ##########################################################
-  # SAMPLE ANNOTATION
-  ##########################################################
-  
-  heatmap_annotation <- metadata[
-    
-    colnames(vst_matrix),
-    
-    c(
-      "Genotype",
-      "Pi",
-      "Condition"
-    ),
-    
-    drop = FALSE
-    
-  ]
-  
-  
-  rownames(heatmap_annotation) <-
-    metadata$Display_Name[
-      match(
-        rownames(heatmap_annotation),
-        rownames(metadata)
-      )
-    ]
-  
-  
-  ##########################################################
-  # PLOT
-  ##########################################################
-  
-  png(
-    
-    filename,
-    
-    width = 1300,
-    height = 1500,
-    res = 150
-    
-  )
-  
-  
-  pheatmap(
-    
-    heatmap_scaled,
-    
-    annotation_col =
-      heatmap_annotation,
-    
-    cluster_rows = TRUE,
-    
-    cluster_cols = TRUE,
-    
-    show_rownames = TRUE,
-    
-    fontsize_row = 8,
-    
-    fontsize_col = 9,
-    
-    main = paste(
-      comparison_name,
-      "\nTop significant genes"
-    )
-    
-  )
-  
-  
-  dev.off()
-  
-}
-
-
-############################################################
-# 31. GENERATE FIVE DE HEATMAPS
-############################################################
-
-make_DE_heatmap(
-  
-  res_kcs1_plus,
-  
-  "kcs1 vs WT +Pi",
-  
-  file.path(
-    output_dir,
-    "05_Heatmaps",
-    "Heatmap_Kcs1_vs_WT_PLUS_Pi.png"
-  )
-  
-)
-
-
-make_DE_heatmap(
-  
-  res_WT_starvation,
-  
-  "WT -Pi vs +Pi",
-  
-  file.path(
-    output_dir,
-    "05_Heatmaps",
-    "Heatmap_WT_Starvation.png"
-  )
-  
-)
-
-
-make_DE_heatmap(
-  
-  res_kcs1_starvation,
-  
-  "kcs1 -Pi vs +Pi",
-  
-  file.path(
-    output_dir,
-    "05_Heatmaps",
-    "Heatmap_Kcs1_Starvation.png"
-  )
-  
-)
-
-
-make_DE_heatmap(
-  
-  res_kcs1_minus,
-  
-  "kcs1 vs WT -Pi",
-  
-  file.path(
-    output_dir,
-    "05_Heatmaps",
-    "Heatmap_Kcs1_vs_WT_MINUS_Pi.png"
-  )
-  
-)
-
-
-make_DE_heatmap(
-  
-  res_interaction,
-  
-  "Genotype × Pi Interaction",
-  
-  file.path(
-    output_dir,
-    "05_Heatmaps",
-    "Heatmap_Interaction.png"
-  )
-  
-)
-
-
-############################################################
-# 32. CONDITION-LEVEL INTERACTION HEATMAP
-#
-# The three replicates are averaged.
-#
-# This is one of the most biologically useful figures
-# for the question:
-#
-# Does kcs1 alter the transcriptional response to
-# phosphate starvation?
-############################################################
-
-print("======================================================")
-print("GENERATING INTERACTION HEATMAP")
-print("======================================================")
-
-
-interaction_df <- annotate_DE_results(
-  res_interaction
-)
-
-
-interaction_sig <- interaction_df[
-  
-  !is.na(interaction_df$padj) &
-    interaction_df$padj < 0.05 &
-    !is.na(interaction_df$log2FoldChange) &
-    abs(interaction_df$log2FoldChange) >= 1,
-  
-  ,
-  drop = FALSE
-  
-]
-
-
-if (nrow(interaction_sig) > 0) {
-  
-  
-  ##########################################################
-  # SORT BY ADJUSTED P-VALUE
-  ##########################################################
-  
-  interaction_sig$padj_numeric <-
-    as.numeric(
-      interaction_sig$padj
-    )
-  
-  
-  interaction_sig <- interaction_sig[
-    
-    order(
-      interaction_sig$padj_numeric,
-      na.last = TRUE
-    ),
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  ##########################################################
-  # SELECT TOP 50
-  ##########################################################
-  
-  interaction_genes <- head(
-    
-    interaction_sig$Systematic_ID,
-    
-    50
-    
-  )
-  
-  
-  interaction_genes <- intersect(
-    
-    interaction_genes,
-    
-    rownames(
-      condition_mean_matrix
-    )
-    
-  )
-  
-  
-  ##########################################################
-  # CREATE MATRIX
-  ##########################################################
-  
-  interaction_condition_matrix <-
-    condition_mean_matrix[
-      interaction_genes,
-      ,
-      drop = FALSE
-    ]
-  
-  
-  ##########################################################
-  # Z-SCORE
-  ##########################################################
-  
-  interaction_condition_scaled <- t(
-    
-    scale(
-      t(
-        interaction_condition_matrix
-      )
-    )
-    
-  )
-  
-  
-  ##########################################################
-  # REPLACE GENE IDS WITH GENE NAMES
-  ##########################################################
-  
-  interaction_gene_names <-
-    gene_annotation$Gene_Name[
-      
-      match(
-        interaction_genes,
-        gene_annotation$Systematic_ID
-      )
-      
-    ]
-  
-  
-  missing_names <- (
-    
-    is.na(interaction_gene_names) |
-      interaction_gene_names == ""
-    
-  )
-  
-  
-  interaction_gene_names[
-    missing_names
-  ] <- interaction_genes[
-    missing_names
-  ]
-  
-  
-  rownames(
-    interaction_condition_scaled
-  ) <- make.unique(
-    interaction_gene_names
-  )
-  
-  
-  ##########################################################
-  # PLOT
-  ##########################################################
-  
-  png(
-    
-    file.path(
-      output_dir,
-      "05_Heatmaps",
-      "Top_50_Interaction_Genes_4_Conditions.png"
-    ),
-    
-    width = 1200,
-    height = 1500,
-    res = 150
-    
-  )
-  
-  
-  pheatmap(
-    
-    interaction_condition_scaled,
-    
-    cluster_rows = TRUE,
-    
-    cluster_cols = FALSE,
-    
-    show_rownames = TRUE,
-    
-    fontsize_row = 8,
-    
-    fontsize_col = 11,
-    
-    main =
-      "Top 50 Genes with Significant\nGenotype × Pi Interaction"
-    
-  )
-  
-  
-  dev.off()
-  
-  
-} else {
-  
-  
-  print(
-    "No interaction genes met padj < 0.05 and |log2FC| >= 1."
-  )
-  
-}
-
-
-############################################################
-# 33. DIRECTLY COMPARE WT AND kcs1 STARVATION RESPONSES
-############################################################
-
-print("======================================================")
-print("COMPARING WT AND kcs1 STARVATION RESPONSES")
-print("======================================================")
-
-
-starvation_fc <- data.frame(
-  
-  Systematic_ID =
-    rownames(
-      res_WT_starvation
-    ),
-  
-  WT_Starvation =
-    as.numeric(
-      res_WT_starvation$log2FoldChange
-    ),
-  
-  kcs1_Starvation =
-    as.numeric(
-      res_kcs1_starvation$log2FoldChange
-    ),
-  
-  WT_padj =
-    as.numeric(
-      res_WT_starvation$padj
-    ),
-  
-  kcs1_padj =
-    as.numeric(
-      res_kcs1_starvation$padj
-    ),
-  
-  stringsAsFactors = FALSE
-  
 )
 
 
@@ -3928,823 +2002,1478 @@ starvation_fc <- data.frame(
 # ADD GENE NAMES
 ############################################################
 
-starvation_fc$Gene_Name <-
-  gene_annotation$Gene_Name[
-    
-    match(
-      starvation_fc$Systematic_ID,
-      gene_annotation$Systematic_ID
-    )
-    
-  ]
+res_kcs1_plus_vs_WT_plus <- add_gene_names(
+  res_kcs1_plus_vs_WT_plus
+)
 
+res_WT_minus_vs_plus <- add_gene_names(
+  res_WT_minus_vs_plus
+)
 
-missing_names <- (
-  
-  is.na(starvation_fc$Gene_Name) |
-    starvation_fc$Gene_Name == ""
-  
+res_kcs1_minus_vs_plus <- add_gene_names(
+  res_kcs1_minus_vs_plus
+)
+
+res_kcs1_minus_vs_WT_minus <- add_gene_names(
+  res_kcs1_minus_vs_WT_minus
+)
+
+res_interaction <- add_gene_names(
+  res_interaction
 )
 
 
-starvation_fc$Gene_Name[
-  missing_names
-] <- starvation_fc$Systematic_ID[
-  missing_names
-]
-
-
 ############################################################
-# REORDER COLUMNS
-############################################################
-
-starvation_fc <- starvation_fc[
-  
-  ,
-  
-  c(
-    "Gene_Name",
-    "Systematic_ID",
-    "WT_Starvation",
-    "kcs1_Starvation",
-    "WT_padj",
-    "kcs1_padj"
-  ),
-  
-  drop = FALSE
-  
-]
-
-
-############################################################
-# CALCULATE RESPONSE DIFFERENCE
-############################################################
-
-starvation_fc$Response_Difference <-
-  
-  abs(
-    
-    starvation_fc$WT_Starvation -
-      starvation_fc$kcs1_Starvation
-    
-  )
-
-
-############################################################
-# SORT BY RESPONSE DIFFERENCE
-############################################################
-
-starvation_fc <- starvation_fc[
-  
-  order(
-    starvation_fc$Response_Difference,
-    decreasing = TRUE
-  ),
-  
-  ,
-  drop = FALSE
-  
-]
-
-
-############################################################
-# SAVE COMPLETE STARVATION RESPONSE TABLE
+# 16. SAVE DE RESULTS
 ############################################################
 
 write.csv(
-  
-  starvation_fc,
-  
+
+  res_kcs1_plus_vs_WT_plus,
+
   file.path(
     output_dir,
-    "09_Response_analysis",
-    "WT_vs_kcs1_Starvation_Response_All_Genes.csv"
+    "02_DE_results",
+    "DE_kcs1_plus_vs_WT_plus.csv"
   ),
-  
+
   row.names = FALSE
-  
+
+)
+
+
+write.csv(
+
+  res_WT_minus_vs_plus,
+
+  file.path(
+    output_dir,
+    "02_DE_results",
+    "DE_WT_minus_vs_WT_plus.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+write.csv(
+
+  res_kcs1_minus_vs_plus,
+
+  file.path(
+    output_dir,
+    "02_DE_results",
+    "DE_kcs1_minus_vs_kcs1_plus.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+write.csv(
+
+  res_kcs1_minus_vs_WT_minus,
+
+  file.path(
+    output_dir,
+    "02_DE_results",
+    "DE_kcs1_minus_vs_WT_minus.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+write.csv(
+
+  res_interaction,
+
+  file.path(
+    output_dir,
+    "02_DE_results",
+    "DE_Genotype_x_Pi_interaction.csv"
+  ),
+
+  row.names = FALSE
+
 )
 
 
 ############################################################
-# 34. STARVATION RESPONSE HEATMAP
+# 17. SIGNIFICANT GENE LISTS
 ############################################################
 
-top_starvation <- head(
-  
-  starvation_fc,
-  
-  50
-  
-)
-
-
-starvation_matrix <- as.matrix(
-  
-  top_starvation[
-    ,
-    c(
-      "WT_Starvation",
-      "kcs1_Starvation"
-    ),
-    drop = FALSE
-  ]
-  
-)
-
-
-rownames(starvation_matrix) <-
-  make.unique(
-    top_starvation$Gene_Name
-  )
-
-
-colnames(starvation_matrix) <- c(
-  
-  "WT: -Pi vs +Pi",
-  
-  "kcs1: -Pi vs +Pi"
-  
-)
-
-
-max_fc <- max(
-  
-  abs(starvation_matrix),
-  
-  na.rm = TRUE
-  
-)
-
-
-if (
-  !is.finite(max_fc) ||
-  max_fc == 0
+get_significant_genes <- function(
+  result_df,
+  padj_cutoff = 0.05
 ) {
-  
-  max_fc <- 1
-  
+
+  result_df %>%
+
+    filter(
+      !is.na(padj),
+      padj < padj_cutoff
+    ) %>%
+
+    arrange(
+      padj
+    )
+
 }
 
 
-breaks <- seq(
-  
-  -max_fc,
-  
-  max_fc,
-  
-  length.out = 101
-  
+sig_kcs1_plus_vs_WT_plus <- get_significant_genes(
+  res_kcs1_plus_vs_WT_plus
+)
+
+sig_WT_minus_vs_plus <- get_significant_genes(
+  res_WT_minus_vs_plus
+)
+
+sig_kcs1_minus_vs_plus <- get_significant_genes(
+  res_kcs1_minus_vs_plus
+)
+
+sig_kcs1_minus_vs_WT_minus <- get_significant_genes(
+  res_kcs1_minus_vs_WT_minus
+)
+
+sig_interaction <- get_significant_genes(
+  res_interaction
 )
 
 
-png(
-  
+############################################################
+# SAVE SIGNIFICANT LISTS
+############################################################
+
+write.csv(
+
+  sig_kcs1_plus_vs_WT_plus,
+
   file.path(
     output_dir,
-    "09_Response_analysis",
-    "Starvation_Response_Comparison.png"
+    "08_Significant_gene_lists",
+    "Significant_kcs1_plus_vs_WT_plus.csv"
   ),
-  
-  width = 1100,
-  height = 1400,
-  res = 150
-  
+
+  row.names = FALSE
+
 )
 
+
+write.csv(
+
+  sig_WT_minus_vs_plus,
+
+  file.path(
+    output_dir,
+    "08_Significant_gene_lists",
+    "Significant_WT_minus_vs_plus.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+write.csv(
+
+  sig_kcs1_minus_vs_plus,
+
+  file.path(
+    output_dir,
+    "08_Significant_gene_lists",
+    "Significant_kcs1_minus_vs_kcs1_plus.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+write.csv(
+
+  sig_kcs1_minus_vs_WT_minus,
+
+  file.path(
+    output_dir,
+    "08_Significant_gene_lists",
+    "Significant_kcs1_minus_vs_WT_minus.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+write.csv(
+
+  sig_interaction,
+
+  file.path(
+    output_dir,
+    "08_Significant_gene_lists",
+    "Significant_Genotype_x_Pi_interaction.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+############################################################
+# 18. VOLCANO PLOT FUNCTION
+############################################################
+
+make_volcano <- function(
+
+  result_df,
+
+  plot_title,
+
+  output_file,
+
+  fc_cutoff = 1,
+
+  padj_cutoff = 0.05
+
+) {
+
+  plot_df <- result_df %>%
+
+    filter(
+      !is.na(log2FoldChange),
+      !is.na(padj)
+    )
+
+  if (nrow(plot_df) == 0) {
+
+    warning(
+      paste(
+        "No usable genes for:",
+        plot_title
+      )
+    )
+
+    return(NULL)
+
+  }
+
+
+  plot_df$Significance <- "Not significant"
+
+  plot_df$Significance[
+    plot_df$padj < padj_cutoff &
+      plot_df$log2FoldChange >= fc_cutoff
+  ] <- "Upregulated"
+
+  plot_df$Significance[
+    plot_df$padj < padj_cutoff &
+      plot_df$log2FoldChange <= -fc_cutoff
+  ] <- "Downregulated"
+
+
+  plot_df$Label <- NA
+
+  significant_for_label <- plot_df %>%
+
+    filter(
+      padj < padj_cutoff
+    ) %>%
+
+    arrange(
+      padj
+    ) %>%
+
+    head(15)
+
+
+  if (nrow(significant_for_label) > 0) {
+
+    plot_df$Label[
+      match(
+        significant_for_label$Systematic_ID,
+        plot_df$Systematic_ID
+      )
+    ] <- significant_for_label$Display_Name
+
+  }
+
+
+  p <- ggplot(
+
+    plot_df,
+
+    aes(
+      x = log2FoldChange,
+      y = -log10(padj)
+    )
+
+  ) +
+
+    geom_point(
+      alpha = 0.6,
+      size = 1.5
+    ) +
+
+    geom_vline(
+      xintercept = c(
+        -fc_cutoff,
+        fc_cutoff
+      ),
+      linetype = "dashed"
+    ) +
+
+    geom_hline(
+      yintercept = -log10(padj_cutoff),
+      linetype = "dashed"
+    ) +
+
+    geom_text_repel(
+
+      aes(
+        label = Label
+      ),
+
+      na.rm = TRUE,
+
+      size = 3,
+
+      max.overlaps = 20
+
+    ) +
+
+    theme_bw() +
+
+    labs(
+
+      title = plot_title,
+
+      x = "log2 fold change",
+
+      y = "-log10 adjusted p-value"
+
+    )
+
+
+  ggsave(
+
+    output_file,
+
+    p,
+
+    width = 9,
+
+    height = 7,
+
+    dpi = 300
+
+  )
+
+
+  return(p)
+
+}
+
+
+############################################################
+# 19. CREATE VOLCANO PLOTS
+############################################################
+
+make_volcano(
+
+  res_kcs1_plus_vs_WT_plus,
+
+  "kcs1 vs WT: +Pi",
+
+  file.path(
+    output_dir,
+    "03_Volcano",
+    "Volcano_kcs1_plus_vs_WT_plus.png"
+  )
+
+)
+
+
+make_volcano(
+
+  res_WT_minus_vs_plus,
+
+  "WT: -Pi vs +Pi",
+
+  file.path(
+    output_dir,
+    "03_Volcano",
+    "Volcano_WT_minus_vs_plus.png"
+  )
+
+)
+
+
+make_volcano(
+
+  res_kcs1_minus_vs_plus,
+
+  "kcs1: -Pi vs +Pi",
+
+  file.path(
+    output_dir,
+    "03_Volcano",
+    "Volcano_kcs1_minus_vs_plus.png"
+  )
+
+)
+
+
+make_volcano(
+
+  res_kcs1_minus_vs_WT_minus,
+
+  "kcs1 vs WT: -Pi",
+
+  file.path(
+    output_dir,
+    "03_Volcano",
+    "Volcano_kcs1_minus_vs_WT_minus.png"
+  )
+
+)
+
+
+make_volcano(
+
+  res_interaction,
+
+  "Genotype × Pi interaction",
+
+  file.path(
+    output_dir,
+    "03_Volcano",
+    "Volcano_Genotype_x_Pi_interaction.png"
+  )
+
+)
+
+
+############################################################
+# 20. MA PLOT FUNCTION
+############################################################
+
+make_ma_plot <- function(
+
+  result_df,
+
+  plot_title,
+
+  output_file
+
+) {
+
+  plot_df <- result_df %>%
+
+    filter(
+      !is.na(baseMean),
+      !is.na(log2FoldChange)
+    )
+
+
+  p <- ggplot(
+
+    plot_df,
+
+    aes(
+      x = log10(baseMean + 1),
+      y = log2FoldChange
+    )
+
+  ) +
+
+    geom_point(
+      alpha = 0.4,
+      size = 1
+    ) +
+
+    geom_hline(
+      yintercept = 0,
+      linetype = "dashed"
+    ) +
+
+    theme_bw() +
+
+    labs(
+
+      title = plot_title,
+
+      x = "log10 mean normalized expression",
+
+      y = "log2 fold change"
+
+    )
+
+
+  ggsave(
+
+    output_file,
+
+    p,
+
+    width = 9,
+
+    height = 7,
+
+    dpi = 300
+
+  )
+
+}
+
+
+############################################################
+# 21. CREATE MA PLOTS
+############################################################
+
+make_ma_plot(
+
+  res_kcs1_plus_vs_WT_plus,
+
+  "kcs1 vs WT: +Pi",
+
+  file.path(
+    output_dir,
+    "04_MA_plots",
+    "MA_kcs1_plus_vs_WT_plus.png"
+  )
+
+)
+
+
+make_ma_plot(
+
+  res_WT_minus_vs_plus,
+
+  "WT: -Pi vs +Pi",
+
+  file.path(
+    output_dir,
+    "04_MA_plots",
+    "MA_WT_minus_vs_plus.png"
+  )
+
+)
+
+
+make_ma_plot(
+
+  res_kcs1_minus_vs_plus,
+
+  "kcs1: -Pi vs +Pi",
+
+  file.path(
+    output_dir,
+    "04_MA_plots",
+    "MA_kcs1_minus_vs_plus.png"
+  )
+
+)
+
+
+make_ma_plot(
+
+  res_kcs1_minus_vs_WT_minus,
+
+  "kcs1 vs WT: -Pi",
+
+  file.path(
+    output_dir,
+    "04_MA_plots",
+    "MA_kcs1_minus_vs_WT_minus.png"
+  )
+
+)
+
+
+make_ma_plot(
+
+  res_interaction,
+
+  "Genotype × Pi interaction",
+
+  file.path(
+    output_dir,
+    "04_MA_plots",
+    "MA_Genotype_x_Pi_interaction.png"
+  )
+
+)
+
+
+############################################################
+# 22. TOP VARIABLE GENE HEATMAP
+############################################################
+
+print("======================================================")
+print("CREATING TOP VARIABLE GENE HEATMAP")
+print("======================================================")
+
+
+gene_variances <- rowVars(
+  vst_matrix
+)
+
+top_n <- min(
+  50,
+  length(gene_variances)
+)
+
+top_variable_genes <- names(
+  sort(
+    gene_variances,
+    decreasing = TRUE
+  )
+)[1:top_n]
+
+
+heatmap_matrix <- vst_matrix[
+  top_variable_genes,
+  ,
+  drop = FALSE
+]
+
+
+############################################################
+# REPLACE SYSTEMATIC IDS WITH GENE NAMES
+############################################################
+
+heatmap_gene_names <- gene_annotation$Gene_Name[
+  match(
+    rownames(heatmap_matrix),
+    gene_annotation$Systematic_ID
+  )
+]
+
+heatmap_gene_names[
+  is.na(heatmap_gene_names) |
+    heatmap_gene_names == ""
+] <- rownames(
+  heatmap_matrix
+)[
+  is.na(heatmap_gene_names) |
+    heatmap_gene_names == ""
+]
+
+
+############################################################
+# MAKE GENE NAMES UNIQUE
+############################################################
+
+rownames(heatmap_matrix) <- make.unique(
+  heatmap_gene_names
+)
+
+
+############################################################
+# SCALE EACH GENE
+############################################################
+
+heatmap_scaled <- t(
+  scale(
+    t(heatmap_matrix)
+  )
+)
+
+
+############################################################
+# SAMPLE ANNOTATION
+############################################################
+
+annotation_col <- data.frame(
+
+  Genotype = metadata$Genotype,
+
+  Pi = metadata$Pi
+
+)
+
+rownames(annotation_col) <- colnames(
+  heatmap_scaled
+)
+
+
+############################################################
+# CREATE HEATMAP
+############################################################
+
+png(
+
+  file.path(
+    output_dir,
+    "05_Heatmaps",
+    "Heatmap_Top_50_Variable_Genes.png"
+  ),
+
+  width = 2400,
+
+  height = 2400,
+
+  res = 300
+
+)
 
 pheatmap(
-  
-  starvation_matrix,
-  
-  scale = "none",
-  
-  cluster_rows = TRUE,
-  
-  cluster_cols = FALSE,
-  
-  color = colorRampPalette(
-    c(
-      "royalblue3",
-      "white",
-      "firebrick2"
-    )
-  )(100),
-  
-  breaks = breaks,
-  
-  fontsize_row = 8,
-  
-  fontsize_col = 11,
-  
-  border_color = "grey90",
-  
-  main =
-    "Comparison of Phosphate-Starvation Responses"
-  
-)
 
+  heatmap_scaled,
+
+  scale = "none",
+
+  annotation_col = annotation_col,
+
+  cluster_rows = TRUE,
+
+  cluster_cols = TRUE,
+
+  show_rownames = TRUE,
+
+  fontsize_row = 6,
+
+  fontsize_col = 9,
+
+  main = "Top 50 most variable genes"
+
+)
 
 dev.off()
 
 
 ############################################################
-# 35. OPPOSITE STARVATION RESPONSES
-#
-# WT increases AND kcs1 decreases
-# OR
-# WT decreases AND kcs1 increases
+# 23. DE HEATMAP FUNCTION
 ############################################################
 
-opposite_response <- starvation_fc[
-  
-  (
-    
-    starvation_fc$WT_Starvation >= 1 &
-      starvation_fc$kcs1_Starvation <= -1
-    
-  ) |
-    
-    (
-      
-      starvation_fc$WT_Starvation <= -1 &
-        starvation_fc$kcs1_Starvation >= 1
-      
-    ),
-  
-  ,
-  drop = FALSE
-  
-]
+make_de_heatmap <- function(
 
+  result_df,
 
-write.csv(
-  
-  opposite_response,
-  
-  file.path(
-    output_dir,
-    "09_Response_analysis",
-    "Opposite_Starvation_Response_Genes.csv"
-  ),
-  
-  row.names = FALSE
-  
-)
+  plot_title,
 
+  output_file,
 
-print(
-  paste(
-    "Opposite-response genes:",
-    nrow(opposite_response)
-  )
-)
+  n_genes = 50
 
-
-############################################################
-# 36. WT STRONG RESPONSE BUT kcs1 WEAKER RESPONSE
-#
-# IMPORTANT:
-#
-# This is a candidate list, not proof of differential
-# response.
-#
-# The formal statistical test is the interaction term.
-############################################################
-
-WT_induced_kcs1_weaker <- starvation_fc[
-  
-  starvation_fc$WT_Starvation >= 1 &
-    
-    (
-      
-      starvation_fc$kcs1_Starvation < 1
-      
-    ),
-  
-  ,
-  drop = FALSE
-  
-]
-
-
-write.csv(
-  
-  WT_induced_kcs1_weaker,
-  
-  file.path(
-    output_dir,
-    "09_Response_analysis",
-    "WT_Strong_Response_kcs1_Weaker_Response.csv"
-  ),
-  
-  row.names = FALSE
-  
-)
-
-
-############################################################
-# 37. kcs1-SPECIFIC STRONG STARVATION RESPONSE
-############################################################
-
-kcs1_specific_response <- starvation_fc[
-  
-  starvation_fc$kcs1_Starvation >= 1 &
-    
-    (
-      
-      starvation_fc$WT_Starvation < 1
-      
-    ),
-  
-  ,
-  drop = FALSE
-  
-]
-
-
-write.csv(
-  
-  kcs1_specific_response,
-  
-  file.path(
-    output_dir,
-    "09_Response_analysis",
-    "Kcs1_Specific_Strong_Starvation_Response.csv"
-  ),
-  
-  row.names = FALSE
-  
-)
-
-
-############################################################
-# 38. WT VS kcs1 STARVATION RESPONSE SCATTERPLOT
-############################################################
-
-p_response <- ggplot(
-  
-  starvation_fc,
-  
-  aes(
-    x = WT_Starvation,
-    y = kcs1_Starvation
-  )
-  
-) +
-  
-  geom_point(
-    alpha = 0.4,
-    size = 1.8
-  ) +
-  
-  geom_hline(
-    yintercept = 0,
-    linetype = "dashed"
-  ) +
-  
-  geom_vline(
-    xintercept = 0,
-    linetype = "dashed"
-  ) +
-  
-  geom_abline(
-    slope = 1,
-    intercept = 0,
-    linetype = "dashed"
-  ) +
-  
-  theme_bw() +
-  
-  labs(
-    
-    title =
-      "WT vs kcs1 Phosphate-Starvation Responses",
-    
-    subtitle =
-      "Each point represents one gene",
-    
-    x =
-      "WT: log2FC (-Pi vs +Pi)",
-    
-    y =
-      "kcs1: log2FC (-Pi vs +Pi)"
-    
-  ) +
-  
-  theme(
-    
-    axis.title = element_text(
-      size = 14,
-      face = "bold"
-    ),
-    
-    axis.text = element_text(
-      size = 11
-    ),
-    
-    plot.title = element_text(
-      size = 16,
-      face = "bold"
-    )
-    
-  )
-
-
-ggsave(
-  
-  file.path(
-    output_dir,
-    "09_Response_analysis",
-    "WT_vs_kcs1_Starvation_Response_Scatterplot.png"
-  ),
-  
-  p_response,
-  
-  width = 9,
-  height = 8,
-  dpi = 300
-  
-)
-
-
-############################################################
-# 39. HIGHLIGHT SIGNIFICANT INTERACTION GENES
-############################################################
-
-interaction_lookup <- as.data.frame(
-  res_interaction
-)
-
-
-interaction_lookup$Systematic_ID <-
-  rownames(
-    interaction_lookup
-  )
-
-
-interaction_lookup$Interaction_Significant <- (
-  
-  !is.na(
-    interaction_lookup$padj
-  ) &
-    
-    interaction_lookup$padj < 0.05 &
-    
-    !is.na(
-      interaction_lookup$log2FoldChange
-    ) &
-    
-    abs(
-      interaction_lookup$log2FoldChange
-    ) >= 1
-  
-)
-
-
-starvation_plot_df <- left_join(
-  
-  starvation_fc,
-  
-  interaction_lookup[
-    ,
-    c(
-      "Systematic_ID",
-      "Interaction_Significant"
-    ),
-    drop = FALSE
-  ],
-  
-  by = "Systematic_ID"
-  
-)
-
-
-starvation_plot_df$Interaction_Significant[
-  
-  is.na(
-    starvation_plot_df$Interaction_Significant
-  )
-  
-] <- FALSE
-
-
-############################################################
-# PLOT
-############################################################
-
-p_response_interaction <- ggplot(
-  
-  starvation_plot_df,
-  
-  aes(
-    x = WT_Starvation,
-    y = kcs1_Starvation
-  )
-  
-) +
-  
-  geom_point(
-    
-    aes(
-      alpha = Interaction_Significant
-    ),
-    
-    size = 2
-    
-  ) +
-  
-  geom_hline(
-    yintercept = 0,
-    linetype = "dashed"
-  ) +
-  
-  geom_vline(
-    xintercept = 0,
-    linetype = "dashed"
-  ) +
-  
-  geom_abline(
-    slope = 1,
-    intercept = 0,
-    linetype = "dashed"
-  ) +
-  
-  theme_bw() +
-  
-  labs(
-    
-    title =
-      "WT vs kcs1 Phosphate-Starvation Response",
-    
-    subtitle =
-      "Genes with significant Genotype × Pi interactions highlighted",
-    
-    x =
-      "WT: log2FC (-Pi vs +Pi)",
-    
-    y =
-      "kcs1: log2FC (-Pi vs +Pi)",
-    
-    alpha =
-      "Significant interaction"
-    
-  ) +
-  
-  theme(
-    
-    axis.title = element_text(
-      size = 14,
-      face = "bold"
-    ),
-    
-    plot.title = element_text(
-      size = 16,
-      face = "bold"
-    )
-    
-  )
-
-
-ggsave(
-  
-  file.path(
-    output_dir,
-    "09_Response_analysis",
-    "WT_vs_kcs1_Starvation_Interaction_Scatterplot.png"
-  ),
-  
-  p_response_interaction,
-  
-  width = 9,
-  height = 8,
-  dpi = 300
-  
-)
-
-
-############################################################
-# 40. SAVE TOP 100 GENES FOR EACH CONTRAST
-############################################################
-
-save_top_genes <- function(
-    res,
-    name
 ) {
-  
-  
-  df <- annotate_DE_results(
-    res
-  )
-  
-  
-  df$padj_numeric <-
-    as.numeric(
-      df$padj
+
+  significant_genes <- result_df %>%
+
+    filter(
+      !is.na(padj),
+      padj < 0.05
+    ) %>%
+
+    arrange(
+      padj
     )
-  
-  
-  df <- df[
-    
-    !is.na(
-      df$padj_numeric
-    ),
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  df <- df[
-    
-    order(
-      df$padj_numeric
-    ),
-    
-    ,
-    drop = FALSE
-    
-  ]
-  
-  
-  df$padj_numeric <- NULL
-  
-  
-  top100 <- head(
-    
-    df,
-    
-    100
-    
-  )
-  
-  
-  write.csv(
-    
-    top100,
-    
-    file.path(
-      output_dir,
-      "08_Significant_gene_lists",
-      paste0(
-        name,
-        "_Top100_by_padj.csv"
+
+
+  if (nrow(significant_genes) == 0) {
+
+    print(
+      paste(
+        "No significant genes for:",
+        plot_title
       )
-    ),
-    
-    row.names = FALSE
-    
+    )
+
+    return(NULL)
+
+  }
+
+
+  selected_genes <- head(
+    significant_genes$Systematic_ID,
+    n_genes
   )
-  
+
+
+  selected_genes <- intersect(
+    selected_genes,
+    rownames(vst_matrix)
+  )
+
+
+  if (length(selected_genes) < 2) {
+
+    print(
+      paste(
+        "Too few genes for:",
+        plot_title
+      )
+    )
+
+    return(NULL)
+
+  }
+
+
+  heatmap_matrix <- vst_matrix[
+    selected_genes,
+    ,
+    drop = FALSE
+  ]
+
+
+  gene_names <- gene_annotation$Gene_Name[
+    match(
+      rownames(heatmap_matrix),
+      gene_annotation$Systematic_ID
+    )
+  ]
+
+
+  gene_names[
+    is.na(gene_names) |
+      gene_names == ""
+  ] <- rownames(
+    heatmap_matrix
+  )[
+    is.na(gene_names) |
+      gene_names == ""
+  ]
+
+
+  rownames(heatmap_matrix) <- make.unique(
+    gene_names
+  )
+
+
+  heatmap_scaled <- t(
+    scale(
+      t(heatmap_matrix)
+    )
+  )
+
+
+  png(
+
+    output_file,
+
+    width = 2400,
+
+    height = 2600,
+
+    res = 300
+
+  )
+
+
+  pheatmap(
+
+    heatmap_scaled,
+
+    scale = "none",
+
+    annotation_col = annotation_col,
+
+    cluster_rows = TRUE,
+
+    cluster_cols = TRUE,
+
+    show_rownames = TRUE,
+
+    fontsize_row = 7,
+
+    fontsize_col = 9,
+
+    main = plot_title
+
+  )
+
+
+  dev.off()
+
 }
 
 
-save_top_genes(
-  
-  res_kcs1_plus,
-  
-  "Kcs1_vs_WT_PLUS_Pi"
-  
+############################################################
+# 24. CREATE DE HEATMAPS
+############################################################
+
+make_de_heatmap(
+
+  res_kcs1_plus_vs_WT_plus,
+
+  "Differential expression: kcs1 +Pi vs WT +Pi",
+
+  file.path(
+    output_dir,
+    "05_Heatmaps",
+    "Heatmap_kcs1_plus_vs_WT_plus.png"
+  )
+
 )
 
 
-save_top_genes(
-  
-  res_WT_starvation,
-  
-  "WT_MINUS_vs_PLUS"
-  
+make_de_heatmap(
+
+  res_WT_minus_vs_plus,
+
+  "Differential expression: WT -Pi vs +Pi",
+
+  file.path(
+    output_dir,
+    "05_Heatmaps",
+    "Heatmap_WT_minus_vs_plus.png"
+  )
+
 )
 
 
-save_top_genes(
-  
-  res_kcs1_starvation,
-  
-  "Kcs1_MINUS_vs_PLUS"
-  
+make_de_heatmap(
+
+  res_kcs1_minus_vs_plus,
+
+  "Differential expression: kcs1 -Pi vs +Pi",
+
+  file.path(
+    output_dir,
+    "05_Heatmaps",
+    "Heatmap_kcs1_minus_vs_plus.png"
+  )
+
 )
 
 
-save_top_genes(
-  
-  res_kcs1_minus,
-  
-  "Kcs1_vs_WT_MINUS_Pi"
-  
+make_de_heatmap(
+
+  res_kcs1_minus_vs_WT_minus,
+
+  "Differential expression: kcs1 -Pi vs WT -Pi",
+
+  file.path(
+    output_dir,
+    "05_Heatmaps",
+    "Heatmap_kcs1_minus_vs_WT_minus.png"
+  )
+
 )
 
 
-save_top_genes(
-  
+make_de_heatmap(
+
   res_interaction,
-  
-  "Genotype_Pi_INTERACTION"
-  
+
+  "Genotype × Pi interaction",
+
+  file.path(
+    output_dir,
+    "05_Heatmaps",
+    "Heatmap_Genotype_x_Pi_interaction.png"
+  )
+
 )
 
 
 ############################################################
-# 41. ALL SIGNIFICANT INTERACTION GENES
+# 25. CONDITION-LEVEL VST HEATMAP
+############################################################
+#
+# Here, unlike DESeq2, we average the three biological
+# replicates for each condition ONLY for visualization.
+#
 ############################################################
 
-interaction_sig_all <- annotate_DE_results(
-  res_interaction
+print("======================================================")
+print("CREATING CONDITION-LEVEL HEATMAP")
+print("======================================================")
+
+
+condition_means <- matrix(
+
+  NA,
+
+  nrow = nrow(vst_matrix),
+
+  ncol = 4
+
+)
+
+colnames(condition_means) <- c(
+
+  "WT +Pi",
+
+  "WT -Pi",
+
+  "kcs1 +Pi",
+
+  "kcs1 -Pi"
+
 )
 
 
-interaction_sig_all <- interaction_sig_all[
-  
-  !is.na(
-    interaction_sig_all$padj
-  ) &
-    
-    interaction_sig_all$padj < 0.05,
-  
-  ,
-  drop = FALSE
-  
+condition_indices <- list(
+
+  "WT +Pi" = which(
+    metadata$Condition == "WT_plus"
+  ),
+
+  "WT -Pi" = which(
+    metadata$Condition == "WT_minus"
+  ),
+
+  "kcs1 +Pi" = which(
+    metadata$Condition == "kcs1_plus"
+  ),
+
+  "kcs1 -Pi" = which(
+    metadata$Condition == "kcs1_minus"
+  )
+
+)
+
+
+for (i in seq_along(condition_indices)) {
+
+  condition_means[, i] <- rowMeans(
+
+    vst_matrix[
+      ,
+      condition_indices[[i]],
+      drop = FALSE
+    ]
+
+  )
+
+}
+
+
+############################################################
+# SELECT TOP VARIABLE GENES
+############################################################
+
+condition_variances <- rowVars(
+  condition_means
+)
+
+top_condition_genes <- names(
+  sort(
+    condition_variances,
+    decreasing = TRUE
+  )
+)[
+  1:min(
+    50,
+    length(condition_variances)
+  )
 ]
 
 
+condition_heatmap <- condition_means[
+  top_condition_genes,
+  ,
+  drop = FALSE
+]
+
+
+############################################################
+# GENE NAMES
+############################################################
+
+condition_gene_names <- gene_annotation$Gene_Name[
+  match(
+    rownames(condition_heatmap),
+    gene_annotation$Systematic_ID
+  )
+]
+
+condition_gene_names[
+  is.na(condition_gene_names) |
+    condition_gene_names == ""
+] <- rownames(
+  condition_heatmap
+)[
+  is.na(condition_gene_names) |
+    condition_gene_names == ""
+]
+
+
+rownames(condition_heatmap) <- make.unique(
+  condition_gene_names
+)
+
+
+############################################################
+# SCALE GENES
+############################################################
+
+condition_heatmap_scaled <- t(
+  scale(
+    t(condition_heatmap)
+  )
+)
+
+
+############################################################
+# CREATE CONDITION-LEVEL HEATMAP
+############################################################
+
+png(
+
+  file.path(
+    output_dir,
+    "05_Heatmaps",
+    "Heatmap_Top_50_Variable_Condition_Means.png"
+  ),
+
+  width = 1800,
+
+  height = 2400,
+
+  res = 300
+
+)
+
+pheatmap(
+
+  condition_heatmap_scaled,
+
+  scale = "none",
+
+  cluster_rows = TRUE,
+
+  cluster_cols = FALSE,
+
+  show_rownames = TRUE,
+
+  fontsize_row = 6,
+
+  fontsize_col = 10,
+
+  main = "Top 50 variable genes: condition means"
+
+)
+
+dev.off()
+
+
+############################################################
+# 26. PHOSPHATE RESPONSE ANALYSIS
+############################################################
+#
+# This directly examines:
+#
+# WT response to phosphate starvation
+# versus
+# kcs1 response to phosphate starvation
+#
+# The formal statistical test is the Genotype × Pi
+# interaction.
+#
+############################################################
+
+print("======================================================")
+print("PHOSPHATE RESPONSE ANALYSIS")
+print("======================================================")
+
+
+############################################################
+# GET INTERACTION RESULTS
+############################################################
+
+response_df <- res_interaction %>%
+
+  filter(
+    !is.na(log2FoldChange),
+    !is.na(padj)
+  ) %>%
+
+  arrange(
+    padj
+  )
+
+
+############################################################
+# SAVE RESPONSE TABLE
+############################################################
+
 write.csv(
-  
-  interaction_sig_all,
-  
+
+  response_df,
+
   file.path(
     output_dir,
     "09_Response_analysis",
-    "All_Significant_Interaction_Genes_padj0.05.csv"
+    "Phosphate_Response_Interaction_Results.csv"
   ),
-  
+
   row.names = FALSE
-  
+
 )
 
 
 ############################################################
-# 42. SAVE FOUR-CONDITION MEAN MATRIX WITH UNIQUE
-#     GENE NAMES AS ROW NAMES
+# SIGNIFICANT INTERACTION GENES
 ############################################################
 
-condition_output_matrix <-
-  condition_mean_matrix
+significant_response_genes <- response_df %>%
 
-
-condition_output_gene_names <-
-  gene_annotation$Gene_Name[
-    
-    match(
-      rownames(condition_output_matrix),
-      gene_annotation$Systematic_ID
-    )
-    
-  ]
-
-
-missing_names <- (
-  
-  is.na(condition_output_gene_names) |
-    condition_output_gene_names == ""
-  
-)
-
-
-condition_output_gene_names[
-  missing_names
-] <- rownames(
-  condition_output_matrix
-)[
-  missing_names
-]
-
-
-rownames(condition_output_matrix) <-
-  make.unique(
-    condition_output_gene_names
+  filter(
+    padj < 0.05
   )
 
 
 write.csv(
-  
-  as.data.frame(
-    condition_output_matrix
-  ),
-  
+
+  significant_response_genes,
+
   file.path(
     output_dir,
     "09_Response_analysis",
-    "Four_Condition_Mean_VST_Gene_Names.csv"
+    "Significant_Phosphate_Response_Interaction_Genes.csv"
   ),
-  
-  row.names = TRUE
-  
+
+  row.names = FALSE
+
 )
 
 
 ############################################################
-# 43. FINAL SUMMARY
+# TOP INTERACTION GENES
+############################################################
+
+top_interaction_genes <- response_df %>%
+
+  filter(
+    padj < 0.05
+  ) %>%
+
+  arrange(
+    padj
+  ) %>%
+
+  head(50)
+
+
+write.csv(
+
+  top_interaction_genes,
+
+  file.path(
+    output_dir,
+    "09_Response_analysis",
+    "Top_50_Interaction_Genes.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+############################################################
+# 27. RESPONSE HEATMAP
+############################################################
+
+if (
+  nrow(top_interaction_genes) >= 2
+) {
+
+  response_gene_ids <- intersect(
+
+    top_interaction_genes$Systematic_ID,
+
+    rownames(vst_matrix)
+
+  )
+
+
+  response_matrix <- condition_means[
+    response_gene_ids,
+    ,
+    drop = FALSE
+  ]
+
+
+  response_gene_names <- gene_annotation$Gene_Name[
+    match(
+      rownames(response_matrix),
+      gene_annotation$Systematic_ID
+    )
+  ]
+
+
+  response_gene_names[
+    is.na(response_gene_names) |
+      response_gene_names == ""
+  ] <- rownames(
+    response_matrix
+  )[
+    is.na(response_gene_names) |
+      response_gene_names == ""
+  ]
+
+
+  rownames(response_matrix) <- make.unique(
+    response_gene_names
+  )
+
+
+  response_scaled <- t(
+    scale(
+      t(response_matrix)
+    )
+  )
+
+
+  png(
+
+    file.path(
+      output_dir,
+      "09_Response_analysis",
+      "Heatmap_Top_Interaction_Genes.png"
+    ),
+
+    width = 1800,
+
+    height = 2600,
+
+    res = 300
+
+  )
+
+
+  pheatmap(
+
+    response_scaled,
+
+    scale = "none",
+
+    cluster_rows = TRUE,
+
+    cluster_cols = FALSE,
+
+    show_rownames = TRUE,
+
+    fontsize_row = 7,
+
+    fontsize_col = 10,
+
+    main = "Top genes with Genotype × Pi interaction"
+
+  )
+
+
+  dev.off()
+
+}
+
+
+############################################################
+# 28. SUMMARY TABLE
+############################################################
+
+summary_table <- data.frame(
+
+  Comparison = c(
+
+    "kcs1 +Pi vs WT +Pi",
+
+    "WT -Pi vs WT +Pi",
+
+    "kcs1 -Pi vs kcs1 +Pi",
+
+    "kcs1 -Pi vs WT -Pi",
+
+    "Genotype × Pi interaction"
+
+  ),
+
+  Total_genes_tested = c(
+
+    nrow(
+      res_kcs1_plus_vs_WT_plus
+    ),
+
+    nrow(
+      res_WT_minus_vs_plus
+    ),
+
+    nrow(
+      res_kcs1_minus_vs_plus
+    ),
+
+    nrow(
+      res_kcs1_minus_vs_WT_minus
+    ),
+
+    nrow(
+      res_interaction
+    )
+
+  ),
+
+  Significant_padj_0.05 = c(
+
+    sum(
+      !is.na(
+        res_kcs1_plus_vs_WT_plus$padj
+      ) &
+        res_kcs1_plus_vs_WT_plus$padj < 0.05
+    ),
+
+    sum(
+      !is.na(
+        res_WT_minus_vs_plus$padj
+      ) &
+        res_WT_minus_vs_plus$padj < 0.05
+    ),
+
+    sum(
+      !is.na(
+        res_kcs1_minus_vs_plus$padj
+      ) &
+        res_kcs1_minus_vs_plus$padj < 0.05
+    ),
+
+    sum(
+      !is.na(
+        res_kcs1_minus_vs_WT_minus$padj
+      ) &
+        res_kcs1_minus_vs_WT_minus$padj < 0.05
+    ),
+
+    sum(
+      !is.na(
+        res_interaction$padj
+      ) &
+        res_interaction$padj < 0.05
+    )
+
+  )
+
+)
+
+
+############################################################
+# SAVE SUMMARY
+############################################################
+
+write.csv(
+
+  summary_table,
+
+  file.path(
+    output_dir,
+    "02_DE_results",
+    "DE_summary.csv"
+  ),
+
+  row.names = FALSE
+
+)
+
+
+############################################################
+# 29. FINAL SUMMARY
 ############################################################
 
 print("")
@@ -4752,165 +3481,70 @@ print("======================================================")
 print("RNA-seq ANALYSIS COMPLETE")
 print("======================================================")
 
-
-print("")
-print("EXPERIMENTAL DESIGN:")
-
-print(
-  "WT +Pi:    3 biological replicates"
-)
-
-print(
-  "WT -Pi:    3 biological replicates"
-)
-
-print(
-  "kcs1 +Pi:  3 biological replicates"
-)
-
-print(
-  "kcs1 -Pi:  3 biological replicates"
-)
-
-
-print("")
-print(
-  "DESeq2 used all 12 individual biological replicates."
-)
-
-
-print("")
-print(
-  "Replicates were averaged ONLY for condition-level visualization."
-)
-
-
-print("")
-print(
-  "Gene IDs were mapped to Candida Genome Database gene names."
-)
-
-
-print("")
-print("MAIN DE COMPARISONS:")
-
-print(
-  "1. kcs1 vs WT +Pi"
-)
-
-print(
-  "2. WT -Pi vs +Pi"
-)
-
-print(
-  "3. kcs1 -Pi vs +Pi"
-)
-
-print(
-  "4. kcs1 vs WT -Pi"
-)
-
-print(
-  "5. Genotype × Pi interaction"
-)
-
-
-print("")
-print("MAIN OUTPUTS:")
-
-print(
-  "1. Library-size QC"
-)
-
-print(
-  "2. 12-sample PCA"
-)
-
-print(
-  "3. Four-condition PCA"
-)
-
-print(
-  "4. 12-sample correlation heatmap"
-)
-
-print(
-  "5. Four-condition correlation heatmap"
-)
-
-print(
-  "6. Top-variable-gene heatmaps"
-)
-
-print(
-  "7. Five MA plots"
-)
-
-print(
-  "8. Five volcano plots"
-)
-
-print(
-  "9. Five DE heatmaps"
-)
-
-print(
-  "10. Interaction heatmap"
-)
-
-print(
-  "11. WT vs kcs1 starvation-response heatmap"
-)
-
-print(
-  "12. WT vs kcs1 starvation-response scatterplot"
-)
-
-print(
-  "13. Interaction-highlighted scatterplot"
-)
-
-print(
-  "14. Significant gene lists"
-)
-
-print(
-  "15. Top 100 genes for every contrast"
-)
-
-
-print("")
-print("SAMPLE NAMING:")
-
-print(
-  "WT +Pi 1, WT +Pi 2, WT +Pi 3"
-)
-
-print(
-  "WT -Pi 1, WT -Pi 2, WT -Pi 3"
-)
-
-print(
-  "kcs1 +Pi 1, kcs1 +Pi 2, kcs1 +Pi 3"
-)
-
-print(
-  "kcs1 -Pi 1, kcs1 -Pi 2, kcs1 -Pi 3"
-)
-
-
-print("")
 print(
   paste(
-    "Results saved to:",
-    normalizePath(
-      output_dir
+    "Total genes analyzed:",
+    nrow(dds)
+  )
+)
+
+print(
+  paste(
+    "WT +Pi replicates:",
+    sum(
+      metadata$Condition == "WT_plus"
     )
   )
 )
 
+print(
+  paste(
+    "WT -Pi replicates:",
+    sum(
+      metadata$Condition == "WT_minus"
+    )
+  )
+)
+
+print(
+  paste(
+    "kcs1 +Pi replicates:",
+    sum(
+      metadata$Condition == "kcs1_plus"
+    )
+  )
+)
+
+print(
+  paste(
+    "kcs1 -Pi replicates:",
+    sum(
+      metadata$Condition == "kcs1_minus"
+    )
+  )
+)
+
+print("")
+print("Output directory:")
+print(
+  normalizePath(
+    output_dir
+  )
+)
+
+print("")
+print("Key result:")
+print(
+  paste(
+    "Genotype × Pi interaction genes with padj < 0.05:",
+    nrow(
+      significant_response_genes
+    )
+  )
+)
 
 print("")
 print("======================================================")
 print("END OF ANALYSIS")
 print("======================================================")
+'''
